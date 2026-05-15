@@ -14,7 +14,14 @@ sys.path.insert(0, str(BACKEND_DIR))
 from file_store import atomic_write_bytes, atomic_write_text, safe_child_path
 from llm_client import build_ai_http_headers, format_llm_error
 from model_routes import load_model_routes, public_model_routes, save_model_routes
-from routers.chat import _chunk_delta_content, _is_model_status_question, _resolve_chat_model
+# After P0-3 refactor these helpers moved out of routers.chat:
+#   _chunk_delta_content → skills.implementations.general_chat._chunk_delta
+#   _is_model_status_question → skills.implementations.model_status.SKILL.fast_match
+#   _resolve_chat_model → config.resolve_model (the wrapper in chat.py was a thin shim)
+from config import resolve_model as _resolve_chat_model
+from skills.implementations.general_chat import _chunk_delta as _chunk_delta_content
+from skills.implementations.model_status import SKILL as _MODEL_STATUS_SKILL
+_is_model_status_question = _MODEL_STATUS_SKILL.fast_match
 from upload_validation import (
     UploadValidationError,
     validate_excel_upload,
@@ -218,14 +225,17 @@ class LlmClientTests(unittest.TestCase):
         self.assertFalse(_is_model_status_question("请帮我起草授权请示"))
 
     def test_compliance_ledger_download_intent_is_supported(self):
-        from routers.chat import INTENT_RESPONSES, _VALID_INTENTS
+        # After P0-3 refactor: intent metadata lives on the skill itself.
+        from skills.dispatcher import Dispatcher
 
-        self.assertIn("download_compliance_excel", _VALID_INTENTS)
-        self.assertIn("download_compliance_excel", INTENT_RESPONSES)
-        self.assertEqual(
-            INTENT_RESPONSES["download_compliance_excel"][1],
-            "download_compliance_excel",
+        d = Dispatcher()
+        skill = next(
+            (s for s in d.skills if s.intent == "download_compliance_excel"),
+            None,
         )
+        self.assertIsNotNone(skill, "download_compliance_excel skill missing")
+        self.assertEqual(skill.next_stage, "download_compliance_excel")
+        self.assertTrue(skill.reply, "fixed reply must be non-empty")
 
     def test_runtime_model_routes_can_be_loaded_from_json(self):
         TEST_TMP_ROOT.mkdir(parents=True, exist_ok=True)
