@@ -1,0 +1,110 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer components {
+  .field-input {
+    @apply w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-indigo-500;
+  }
+
+  .field-textarea {
+    @apply w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-indigo-500 resize-none;
+  }
+
+  .table-input {
+    @apply w-full bg-slate-700 border border-slate-600 rounded px-2 py-1 text-xs text-white outline-none focus:border-indigo-500;
+  }
+
+  .table-textarea {
+    @apply w-full bg-slate-700 border border-slate-600 rounded px-2 py-1 text-xs text-white outline-none focus:border-indigo-500 resize-none;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: 'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: #0a0f1e;
+  color: #e2e8f0;
+}
+
+#root {
+  width: 100%;
+  height: 100vh;
+  display: flex;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #2a3a6e;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3d52a0;
+}
+
+/* ── Markdown 聊天内容样式 ─────────────────────────── */
+
+.chat-md p { margin: 4px 0; line-height: 1.6; }
+.chat-md strong { color: #e2e8f0; font-weight: 600; }
+.chat-md em { color: #cbd5e1; }
+.chat-md ul, .chat-md ol { padding-left: 1.4em; margin: 4px 0; }
+.chat-md li { margin: 2px 0; color: #cbd5e1; }
+.chat-md h1, .chat-md h2, .chat-md h3 { color: #e2e8f0; font-weight: 600; margin: 10px 0 4px; }
+.chat-md code { background-color: #1e293b; padding: 2px 6px; border-radius: 4px; font-size: 11px; color: #7dd3fc; }
+.chat-md blockquote { border-left: 3px solid #475569; padding-left: 10px; color: #64748b; margin: 4px 0; font-style: italic; }
+
+/* ── Markdown 表格 ─────────────────────────────────── */
+
+.chat-md table {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: 12px;
+  margin: 8px 0;
+  border-radius: 8px;
+  border: 1px solid #334155;
+}
+
+.chat-md thead tr {
+  background-color: rgba(51, 65, 85, 0.9);
+}
+
+.chat-md th {
+  padding: 7px 12px;
+  text-align: left;
+  font-weight: 600;
+  color: #94a3b8;
+  border-bottom: 1px solid #334155;
+  border-right: 1px solid rgba(51, 65, 85, 0.5);
+  white-space: nowrap;
+}
+
+.chat-md th:last-child { border-right: none; }
+
+.chat-md td {
+  padding: 6px 12px;
+  color: #cbd5e1;
+  border-bottom: 1px solid rgba(51, 65, 85, 0.5);
+  border-right: 1px solid rgba(51, 65, 85, 0.3);
+  vertical-align: top;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.chat-md td:last-child { border-right: none; }
+.chat-md tbody tr:last-child td { border-bottom: none; }
+.chat-md tbody tr:nth-child(even) td { background-color: rgba(30, 41, 59, 0.4); }
+.chat-md tbody tr:hover td { background-color: rgba(99, 102, 241, 0.08); }

@@ -1,0 +1,55 @@
+# ── Secrets (multiple layers of defense) ─────────────────────────
+.env
+.env.*
+!.env.example
+backend/.env
+frontend/.env
+frontend/.env.local
+*.pem
+*.key
+
+# ── Python ───────────────────────────────────────────────────────
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+venv/
+.venv/
+env/
+
+# ── Frontend ─────────────────────────────────────────────────────
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# ── Test artifacts ───────────────────────────────────────────────
+backend/tests/tmp/
+
+# ── User data (uploads, generated files, business data) ──────────
+data/
+backend/培训档案/
+backend/培训统计表.xlsx
+review_outputs/
+
+# ── Codex / agent scratch ────────────────────────────────────────
+.codex_deps/
+.codex_tmp_*/
+.superpowers/
+.claude/
+
+# ── IDE / editor ─────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ── OS ───────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
