@@ -29,6 +29,16 @@ from skills.tracer import DEFAULT_TRACER, LLMTracer
 _FALLBACK_INTENT = "other"
 
 
+def _default_production_tracer() -> LLMTracer:
+    """Use PersistentTracer when llm_audit is importable, else fall back."""
+    try:
+        from llm_audit.tracer import PersistentTracer
+        return PersistentTracer()
+    except Exception:  # noqa: BLE001 — tracing must never break boot
+        logging.exception("PersistentTracer unavailable; using NoopTracer")
+        return DEFAULT_TRACER
+
+
 def _iter_skill_modules():
     for mod_info in pkgutil.iter_modules(_impl_pkg.__path__):
         if mod_info.name.startswith("_"):
@@ -90,7 +100,7 @@ class Dispatcher:
                 "no fallback skill registered (intent=%r); 'other' messages will fail",
                 _FALLBACK_INTENT,
             )
-        self._tracer = tracer or DEFAULT_TRACER
+        self._tracer = tracer or _default_production_tracer()
 
     @property
     def tracer(self) -> LLMTracer:

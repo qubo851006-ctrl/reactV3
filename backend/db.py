@@ -33,7 +33,8 @@ def get_db():
 
 
 def init_db():
-    import models  # noqa: F401 — ensure models are registered before create_all
+    import models  # noqa: F401 — register core models before create_all
+    import llm_audit.models  # noqa: F401 — register LLM audit table
     Base.metadata.create_all(engine)
     _seed()
 

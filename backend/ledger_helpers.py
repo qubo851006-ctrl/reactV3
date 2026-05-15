@@ -595,13 +595,38 @@ def _ledger_result_from_judgment_fields(fields: dict, stage: str) -> str:
     ])
 
 
+def _traced_complete(client, *, scene: str, prompt_template_id: str,
+                     messages: list, **kwargs):
+    """Wrap a sync chat completion with audit tracing.
+
+    Failure to persist the trace must never break the underlying call —
+    PersistentTracer swallows persistence errors internally.
+    """
+    from llm_audit import get_tracer
+    model = kwargs.pop("model", MODEL_CHAT)
+    with get_tracer().sync_span(scene=scene) as span:
+        resp = client.chat.completions.create(
+            model=model, messages=messages, **kwargs,
+        )
+        span.record(
+            model=model,
+            input_messages=messages,
+            output_text=resp.choices[0].message.content,
+            usage=getattr(resp, "usage", None),
+            prompt_template_id=prompt_template_id,
+        )
+    return resp
+
+
 def _extract_doc_fields(client, doc: dict) -> dict:
     dtype = doc["doc_type"]
     text = doc.get("text") or ""
     if dtype in ("起诉状", "上诉状"):
         prompt = PROMPT_SUSOSTATE.replace("{text}", text[:8000])
-        resp = client.chat.completions.create(
-            model=MODEL_CHAT,
+        resp = _traced_complete(
+            client,
+            scene="extract_litigation_fields",
+            prompt_template_id="ledger.suosostate.v1",
             messages=[{"role": "user", "content": prompt}],
             max_tokens=2000, temperature=0.1,
         )
@@ -609,8 +634,10 @@ def _extract_doc_fields(client, doc: dict) -> dict:
 
     if dtype == "业务情况说明":
         prompt = PROMPT_BUSINESS_DESC.replace("{text}", text[:8000])
-        resp = client.chat.completions.create(
-            model=MODEL_CHAT,
+        resp = _traced_complete(
+            client,
+            scene="extract_business_fields",
+            prompt_template_id="ledger.business_desc.v1",
             messages=[{"role": "user", "content": prompt}],
             max_tokens=800, temperature=0.1,
         )
@@ -619,8 +646,10 @@ def _extract_doc_fields(client, doc: dict) -> dict:
     if dtype in ("一审判决书", "二审判决书", "判决书", "裁定书", "再审申请书"):
         text_for_prompt = (text[:5000] + "\n……（中间省略）……\n" + text[-3000:]) if len(text) > 8000 else text
         prompt = PROMPT_JUDGMENT.replace("{text}", text_for_prompt)
-        resp = client.chat.completions.create(
-            model=MODEL_CHAT,
+        resp = _traced_complete(
+            client,
+            scene="extract_judgment_fields",
+            prompt_template_id="ledger.judgment.v1",
             messages=[{"role": "user", "content": prompt}],
             max_tokens=2000, temperature=0.1,
         )
@@ -628,8 +657,10 @@ def _extract_doc_fields(client, doc: dict) -> dict:
 
     if dtype == "强制执行申请书":
         prompt = PROMPT_EXECUTION.replace("{text}", text[:4000])
-        resp = client.chat.completions.create(
-            model=MODEL_CHAT,
+        resp = _traced_complete(
+            client,
+            scene="extract_execution_fields",
+            prompt_template_id="ledger.execution.v1",
             messages=[{"role": "user", "content": prompt}],
             max_tokens=200, temperature=0.1,
         )
