@@ -1,6 +1,9 @@
 import warnings
 warnings.filterwarnings("ignore")
 
+from log_config import configure_logging
+configure_logging()  # install root log format before anything else logs
+
 from pathlib import Path
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
