@@ -531,7 +531,10 @@ class LedgerArchiveSameCaseTests(unittest.TestCase):
 
         TEST_TMP_ROOT.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as tmpdir:
-            with patch.object(ledger_helpers, "LEGAL_ARCHIVE_ROOT", tmpdir):
+            # archive_legal_docs moved to ledger_archive in commit 01b0955;
+            # patch the new module so the tempdir override actually applies.
+            import ledger_archive
+            with patch.object(ledger_archive, "LEGAL_ARCHIVE_ROOT", tmpdir):
                 dir1 = ledger_helpers.archive_legal_docs(
                     [{"name": "起诉状.pdf", "bytes": b"%PDF-1"}],
                     [{"doc_type": "起诉状"}],
@@ -556,7 +559,10 @@ class LedgerArchiveSameCaseTests(unittest.TestCase):
 
         TEST_TMP_ROOT.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as tmpdir:
-            with patch.object(ledger_helpers, "LEGAL_ARCHIVE_ROOT", tmpdir):
+            # archive_legal_docs moved to ledger_archive in commit 01b0955;
+            # patch the new module so the tempdir override actually applies.
+            import ledger_archive
+            with patch.object(ledger_archive, "LEGAL_ARCHIVE_ROOT", tmpdir):
                 dir1 = ledger_helpers.archive_legal_docs(
                     [{"name": "a.pdf", "bytes": b"%PDF"}],
                     [{"doc_type": "起诉状"}],
@@ -576,7 +582,10 @@ class LedgerArchiveSameCaseTests(unittest.TestCase):
 
         TEST_TMP_ROOT.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as tmpdir:
-            with patch.object(ledger_helpers, "LEGAL_ARCHIVE_ROOT", tmpdir):
+            # archive_legal_docs moved to ledger_archive in commit 01b0955;
+            # patch the new module so the tempdir override actually applies.
+            import ledger_archive
+            with patch.object(ledger_archive, "LEGAL_ARCHIVE_ROOT", tmpdir):
                 dir_path = ledger_helpers.archive_legal_docs(
                     [{"name": "起诉状.pdf", "bytes": b"%PDF"}],
                     [{"doc_type": "起诉状"}],
