@@ -334,6 +334,8 @@ export interface AuditRow {
 export interface AuditAnalysisResult {
   rows: AuditRow[]
   total: number
+  /** trace ids from the audit DB, for P1-2 feedback */
+  llm_trace_ids?: string[]
 }
 
 export async function analyzeAudit(
