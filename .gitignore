@@ -43,6 +43,9 @@ review_outputs/
 .superpowers/
 .claude/
 
+# ── Local wheel cache (for offline pip install) ──────────────────
+wheels/
+
 # ── IDE / editor ─────────────────────────────────────────────────
 .idea/
 .vscode/
