@@ -303,35 +303,38 @@ async def analyze_audit(
 
     prompt = _build_prompt(rows, doms)
 
-    def _run_full_analysis() -> list:
+    def _run_full_analysis() -> tuple[list, list[str]]:
+        from llm_audit.context import collect_traces
         client = get_llm_client()
 
-        # Step 1: 模型 A 固定用 Qwen，避免全局默认模型影响审计分类。
-        with trace.step("model_a_classify"):
-            from llm_audit import traced_complete
-            resp_a = traced_complete(
-                client,
-                scene="audit_classify",
-                prompt_template_id="audit.classify.v1",
-                model=AUDIT_CLASSIFY_MODEL,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0,
-            )
-            rows_a = _parse_llm_output(resp_a.choices[0].message.content or "", rows)
+        with collect_traces() as bucket:
+            # Step 1: 模型 A 固定用 Qwen，避免全局默认模型影响审计分类。
+            with trace.step("model_a_classify"):
+                from llm_audit import traced_complete
+                resp_a = traced_complete(
+                    client,
+                    scene="audit_classify",
+                    prompt_template_id="audit.classify.v1",
+                    model=AUDIT_CLASSIFY_MODEL,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0,
+                )
+                rows_a = _parse_llm_output(resp_a.choices[0].message.content or "", rows)
 
-        # Step 2: 模型 B 固定用 DeepSeek 逐条审查 A 的结果。
-        with trace.step("model_b_review"):
-            try:
-                corrections = _call_review_llm(rows_a, doms)
-            except Exception:
-                corrections = []  # B 失败静默降级，只返回 A 的结果
+            # Step 2: 模型 B 固定用 DeepSeek 逐条审查 A 的结果。
+            with trace.step("model_b_review"):
+                try:
+                    corrections = _call_review_llm(rows_a, doms)
+                except Exception:
+                    corrections = []  # B 失败静默降级，只返回 A 的结果
 
-        # Step 3: 合并差异信息
-        with trace.step("merge_results"):
-            return _merge_ab_results(rows_a, corrections)
+            # Step 3: 合并差异信息
+            with trace.step("merge_results"):
+                merged = _merge_ab_results(rows_a, corrections)
+            return merged, list(bucket.ids)
 
     try:
-        classified_rows = await asyncio.to_thread(_run_full_analysis)
+        classified_rows, llm_trace_ids = await asyncio.to_thread(_run_full_analysis)
     except ValueError as e:
         raise HTTPException(status_code=502, detail=str(e))
     except Exception as e:
@@ -345,7 +348,7 @@ async def analyze_audit(
         f"审计分析 {len(classified_rows)} 条，其中 {disagreement_count} 条存在分类分歧",
         request,
     )
-    return {"rows": classified_rows, "total": len(classified_rows)}
+    return {"rows": classified_rows, "total": len(classified_rows), "llm_trace_ids": llm_trace_ids}
 
 
 @router.post("/download")

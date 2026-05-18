@@ -57,6 +57,28 @@ def set_tracer(tracer: LLMTracer) -> None:
     _tracer = tracer
 
 
+def _resolve_messages_with_few_shot(
+    messages: list[dict],
+    scene: str,
+    inject_few_shot: bool,
+) -> list[dict]:
+    """Optionally prepend a few-shot system prefix sourced from user-accepted
+    historical corrections. Vision scenes are auto-skipped (handled inside
+    `maybe_inject`)."""
+    if not inject_few_shot:
+        return messages
+    try:
+        from llm_audit.few_shot import maybe_inject
+        return maybe_inject(messages, scene)
+    except Exception:
+        # Few-shot is a quality booster, never a correctness requirement.
+        import logging
+        logging.getLogger(__name__).exception(
+            "few-shot injection failed for scene=%s; falling back to raw messages", scene,
+        )
+        return messages
+
+
 def traced_complete(
     client: Any,
     *,
@@ -66,19 +88,25 @@ def traced_complete(
     messages: list[dict],
     user_id: int | None = None,
     session_id: str | None = None,
+    inject_few_shot: bool = True,
     **completion_kwargs: Any,
 ):
     """Sync chat completion wrapped in an audit span.
+
+    `inject_few_shot=True` (default) prepends user-accepted examples for the
+    same scene as a system prompt. Vision scenes (`vision_*`, `ledger.vision_*`)
+    auto-skip injection regardless of this flag.
 
     Persistence errors are swallowed by the tracer — this call never raises
     because of tracing. LLM errors propagate normally (and are also captured
     in the trace row's `error` field).
     """
+    final_messages = _resolve_messages_with_few_shot(messages, scene, inject_few_shot)
     with get_tracer().sync_span(
         scene=scene, user_id=user_id, session_id=session_id,
     ) as span:
         resp = client.chat.completions.create(
-            model=model, messages=messages, **completion_kwargs,
+            model=model, messages=final_messages, **completion_kwargs,
         )
         output_text = None
         if getattr(resp, "choices", None):
@@ -88,7 +116,7 @@ def traced_complete(
                 output_text = None
         span.record(
             model=model,
-            input_messages=messages,
+            input_messages=final_messages,
             output_text=output_text,
             usage=getattr(resp, "usage", None),
             prompt_template_id=prompt_template_id,
@@ -105,14 +133,16 @@ async def traced_acomplete(
     messages: list[dict],
     user_id: int | None = None,
     session_id: str | None = None,
+    inject_few_shot: bool = True,
     **completion_kwargs: Any,
 ):
     """Async variant of `traced_complete` for AsyncOpenAI call sites."""
+    final_messages = _resolve_messages_with_few_shot(messages, scene, inject_few_shot)
     async with get_tracer().span(
         scene=scene, user_id=user_id, session_id=session_id,
     ) as span:
         resp = await async_client.chat.completions.create(
-            model=model, messages=messages, **completion_kwargs,
+            model=model, messages=final_messages, **completion_kwargs,
         )
         output_text = None
         if getattr(resp, "choices", None):
@@ -122,7 +152,7 @@ async def traced_acomplete(
                 output_text = None
         span.record(
             model=model,
-            input_messages=messages,
+            input_messages=final_messages,
             output_text=output_text,
             usage=getattr(resp, "usage", None),
             prompt_template_id=prompt_template_id,

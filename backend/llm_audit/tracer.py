@@ -18,6 +18,7 @@ from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timezone
 from typing import AsyncIterator, Iterator
 
+from llm_audit.context import record_trace_id
 from llm_audit.db import get_audit_session_factory
 from llm_audit.models import LLMTrace
 from skills.tracer import TraceSpan
@@ -81,6 +82,7 @@ class PersistentTracer:
     ) -> AsyncIterator[TraceSpan]:
         span = TraceSpan(scene=scene, user_id=user_id, session_id=session_id)
         trace_id = _new_trace_id()
+        record_trace_id(trace_id)  # exposes id to any active collect_traces scope
         started = _time.perf_counter()
         error_text: str | None = None
         try:
@@ -104,6 +106,7 @@ class PersistentTracer:
         compliance_ledger, auth_request_drafter etc)."""
         span = TraceSpan(scene=scene, user_id=user_id, session_id=session_id)
         trace_id = _new_trace_id()
+        record_trace_id(trace_id)
         started = _time.perf_counter()
         error_text: str | None = None
         try:

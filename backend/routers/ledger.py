@@ -145,6 +145,7 @@ async def extract_ledger(
         files_data.append({"name": safe_name, "bytes": b, "content_type": f.content_type})
 
     async def event_stream() -> AsyncGenerator[str, None]:
+        from llm_audit.context import collect_traces
         overall_start = time.perf_counter()
         trace = PerfTrace("ledger.extract", user_id)
 
@@ -157,69 +158,73 @@ async def extract_ledger(
         def send_error(msg: str) -> str:
             return f"data: {json.dumps({'error': msg}, ensure_ascii=False)}\n\n"
 
-        # Step 1: 并发提取文字 / OCR / 文书类型
-        yield send(f"**Step 1** 📄 并发提取文字与识别文书类型（{len(files_data)} 个文件）…")
-        doc_status: list[str] = []
-        text_start = time.perf_counter()
-        with trace.step("extract_docs"):
-            docs = await asyncio.to_thread(
-                _extract_ledger_docs,
-                files_data,
-                vision_model,
-                doc_status.append,
-            )
-        for msg in doc_status:
-            yield send(msg)
-        yield send(f"→ 文件处理完成，用时 {used_since(text_start)}")
+        # Collect every trace_id produced by LLM calls in this extract turn.
+        # Returned in preview_payload so the frontend can attach user
+        # accept/edit feedback after confirming.
+        with collect_traces() as trace_bucket:
+            # Step 1: 并发提取文字 / OCR / 文书类型
+            yield send(f"**Step 1** 📄 并发提取文字与识别文书类型（{len(files_data)} 个文件）…")
+            doc_status: list[str] = []
+            text_start = time.perf_counter()
+            with trace.step("extract_docs"):
+                docs = await asyncio.to_thread(
+                    _extract_ledger_docs,
+                    files_data,
+                    vision_model,
+                    doc_status.append,
+                )
+            for msg in doc_status:
+                yield send(msg)
+            yield send(f"→ 文件处理完成，用时 {used_since(text_start)}")
 
-        if not any((doc.get("text") or "").strip() for doc in docs):
-            yield send_error("OCR 未识别到可用于案件台账生成的正文，请检查扫描件清晰度或 OCR 服务配置后重试。")
+            if not any((doc.get("text") or "").strip() for doc in docs):
+                yield send_error("OCR 未识别到可用于案件台账生成的正文，请检查扫描件清晰度或 OCR 服务配置后重试。")
+                trace.finish()
+                return
+
+            # Step 2: AI 提取字段（阻塞 LLM 调用卸载到线程池）
+            yield send("**Step 2** 🤖 AI 抽取案件字段…")
+            fields_start = time.perf_counter()
+            with trace.step("extract_case_fields"):
+                new_case = await asyncio.to_thread(extract_case_fields, docs, lambda m: None)
+            yield send(f"→ AI 字段提取完成，用时 {used_since(fields_start)}")
+            yield send(f"→ 案件名称：**{new_case.get('案件名称') or '（未提取到）'}**")
+            yield send(f"→ 案由：**{new_case.get('案由') or '（未提取到）'}**")
+            yield send(f"→ 标的金额：**{new_case.get('标的金额') or '（未提取到）'}**")
+
+            # Step 3: 比对台账（可能含 LLM 调用，卸载到线程池）
+            yield send("**Step 3** 🔍 比对现有台账…")
+            match_start = time.perf_counter()
+            with trace.step("match_existing_ledger"):
+                existing_cases = await asyncio.to_thread(load_cases_json)
+                match_idx = await asyncio.to_thread(find_matching_case_idx, new_case, existing_cases, docs)
+            yield send(f"→ 台账匹配完成，用时 {used_since(match_start)}")
+            yield send(f"→ {'匹配到第 ' + str(match_idx + 1) + ' 条记录' if match_idx is not None else '未匹配，将新增'}")
+
+            # Step 4: 准备预览数据（合并但不保存）
+            existing_archive_name = ""  # 已有案件的归档目录名，用于保证同案件文书归入同一文件夹
+            if match_idx is not None:
+                existing_archive_name = existing_cases[match_idx].get("案件名称", "")
+                preview_case = merge_case_data(existing_cases[match_idx], new_case)
+                case_name = preview_case.get("案件名称", "")
+                stage_summary = "、".join(s["审级"] for s in preview_case.get("stages", []))
+                action_text = f"已有案件「{case_name}」，将更新（审级：{stage_summary or '无'}）"
+                is_new = False
+            else:
+                preview_case = new_case
+                case_name = preview_case.get("案件名称", "")
+                action_text = f"新案件「{case_name or '（待补充）'}」，将新增至台账"
+                is_new = True
+
+            # Step 5: 暂存待归档文书，确认写入后再进入正式归档目录。
+            yield send("📁 暂存待归档文书…")
+            archive_start = time.perf_counter()
+            with trace.step("stage_pending_archive"):
+                pending_archive_id = await asyncio.to_thread(_create_pending_upload, user_id, files_data, docs)
+            yield send(f"→ 已暂存，用时 {used_since(archive_start)}")
+
+            yield send(f"✅ 提取完成，总用时 {used_since(overall_start)}，等待确认…")
             trace.finish()
-            return
-
-        # Step 2: AI 提取字段（阻塞 LLM 调用卸载到线程池）
-        yield send("**Step 2** 🤖 AI 抽取案件字段…")
-        fields_start = time.perf_counter()
-        with trace.step("extract_case_fields"):
-            new_case = await asyncio.to_thread(extract_case_fields, docs, lambda m: None)
-        yield send(f"→ AI 字段提取完成，用时 {used_since(fields_start)}")
-        yield send(f"→ 案件名称：**{new_case.get('案件名称') or '（未提取到）'}**")
-        yield send(f"→ 案由：**{new_case.get('案由') or '（未提取到）'}**")
-        yield send(f"→ 标的金额：**{new_case.get('标的金额') or '（未提取到）'}**")
-
-        # Step 3: 比对台账（可能含 LLM 调用，卸载到线程池）
-        yield send("**Step 3** 🔍 比对现有台账…")
-        match_start = time.perf_counter()
-        with trace.step("match_existing_ledger"):
-            existing_cases = await asyncio.to_thread(load_cases_json)
-            match_idx = await asyncio.to_thread(find_matching_case_idx, new_case, existing_cases, docs)
-        yield send(f"→ 台账匹配完成，用时 {used_since(match_start)}")
-        yield send(f"→ {'匹配到第 ' + str(match_idx + 1) + ' 条记录' if match_idx is not None else '未匹配，将新增'}")
-
-        # Step 4: 准备预览数据（合并但不保存）
-        existing_archive_name = ""  # 已有案件的归档目录名，用于保证同案件文书归入同一文件夹
-        if match_idx is not None:
-            existing_archive_name = existing_cases[match_idx].get("案件名称", "")
-            preview_case = merge_case_data(existing_cases[match_idx], new_case)
-            case_name = preview_case.get("案件名称", "")
-            stage_summary = "、".join(s["审级"] for s in preview_case.get("stages", []))
-            action_text = f"已有案件「{case_name}」，将更新（审级：{stage_summary or '无'}）"
-            is_new = False
-        else:
-            preview_case = new_case
-            case_name = preview_case.get("案件名称", "")
-            action_text = f"新案件「{case_name or '（待补充）'}」，将新增至台账"
-            is_new = True
-
-        # Step 5: 暂存待归档文书，确认写入后再进入正式归档目录。
-        yield send("📁 暂存待归档文书…")
-        archive_start = time.perf_counter()
-        with trace.step("stage_pending_archive"):
-            pending_archive_id = await asyncio.to_thread(_create_pending_upload, user_id, files_data, docs)
-        yield send(f"→ 已暂存，用时 {used_since(archive_start)}")
-
-        yield send(f"✅ 提取完成，总用时 {used_since(overall_start)}，等待确认…")
-        trace.finish()
 
         preview_payload = {
             "preview": True,
@@ -231,6 +236,7 @@ async def extract_ledger(
             "existing_archive_name": existing_archive_name,
             "pending_archive_id": pending_archive_id,
             "existing_count": len(existing_cases),
+            "llm_trace_ids": list(trace_bucket.ids),
         }
         yield f"data: {json.dumps(preview_payload, ensure_ascii=False)}\n\n"
 

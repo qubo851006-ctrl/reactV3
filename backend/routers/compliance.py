@@ -74,27 +74,30 @@ async def extract_compliance(
     except UploadValidationError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    def _process() -> dict[str, Any]:
+    def _process() -> tuple[dict[str, Any], list[str]]:
+        from llm_audit.context import collect_traces
         trace = PerfTrace("compliance.extract", user.id)
         try:
-            with trace.step("extract_pdf_text"):
-                text = extract_pdf_text(pdf_bytes, safe_name, vision_model)
-            if not text.strip():
-                raise ValueError("未能从 PDF 中提取可识别文本")
-            with trace.step("load_responsible_persons"):
-                persons = load_responsible_persons()
-            with trace.step("extract_compliance_item"):
-                return extract_compliance_item(text, persons)
+            with collect_traces() as bucket:
+                with trace.step("extract_pdf_text"):
+                    text = extract_pdf_text(pdf_bytes, safe_name, vision_model)
+                if not text.strip():
+                    raise ValueError("未能从 PDF 中提取可识别文本")
+                with trace.step("load_responsible_persons"):
+                    persons = load_responsible_persons()
+                with trace.step("extract_compliance_item"):
+                    item = extract_compliance_item(text, persons)
+            return item, list(bucket.ids)
         finally:
             trace.finish()
 
     try:
-        item = await asyncio.to_thread(_process)
+        item, llm_trace_ids = await asyncio.to_thread(_process)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"合规审查信息提取失败：{e}")
 
     write_log(db, user, "compliance_extract", f"提取合规审查台账：{item.get('title', safe_name)}", request)
-    return {"item": item}
+    return {"item": item, "llm_trace_ids": llm_trace_ids}
 
 
 @router.post("/write")

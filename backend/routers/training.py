@@ -176,27 +176,31 @@ def _run_training_extraction(
     from utils.classifier import classify_training
     from utils.excel_writer import EXCEL_PATH
 
+    from llm_audit.context import collect_traces
+
     trace = PerfTrace("training.extract")
     try:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            notice_path = os.path.join(tmpdir, notice_name)
-            signin_path = os.path.join(tmpdir, signin_name)
-            with trace.step("write_upload_temp_files"):
-                with open(notice_path, "wb") as f:
-                    f.write(notice_bytes)
-                with open(signin_path, "wb") as f:
-                    f.write(signin_bytes)
+        with collect_traces() as bucket:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                notice_path = os.path.join(tmpdir, notice_name)
+                signin_path = os.path.join(tmpdir, signin_name)
+                with trace.step("write_upload_temp_files"):
+                    with open(notice_path, "wb") as f:
+                        f.write(notice_bytes)
+                    with open(signin_path, "wb") as f:
+                        f.write(signin_bytes)
 
-            with trace.step("extract_pdf_text"):
-                notice_text = extract_pdf_text(notice_path)
-            with trace.step("count_attendees"):
-                sign_in_info = count_attendees(signin_path, model=vision_model)
-            with trace.step("classify_training"):
-                category = classify_training(notice_text, sign_in_info["topic"])
-            with trace.step("extract_training_time"):
-                time_info = _extract_training_time(notice_text)
-            with trace.step("stage_pending_archive"):
-                pending_upload_id = _create_training_pending_upload(notice_name, notice_bytes, signin_name, signin_bytes)
+                with trace.step("extract_pdf_text"):
+                    notice_text = extract_pdf_text(notice_path)
+                with trace.step("count_attendees"):
+                    sign_in_info = count_attendees(signin_path, model=vision_model)
+                with trace.step("classify_training"):
+                    category = classify_training(notice_text, sign_in_info["topic"])
+                with trace.step("extract_training_time"):
+                    time_info = _extract_training_time(notice_text)
+                with trace.step("stage_pending_archive"):
+                    pending_upload_id = _create_training_pending_upload(notice_name, notice_bytes, signin_name, signin_bytes)
+        llm_trace_ids = list(bucket.ids)
     finally:
         trace.finish()
 
@@ -214,6 +218,7 @@ def _run_training_extraction(
         "excel_path": EXCEL_PATH,
         "confidence": sign_in_info.get("confidence", "high"),
         "reflection_note": sign_in_info.get("reflection_note", ""),
+        "llm_trace_ids": llm_trace_ids,
     }
 
 

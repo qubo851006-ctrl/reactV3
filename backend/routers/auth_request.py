@@ -56,63 +56,66 @@ async def process_auth_request(
         所有阻塞操作（PDF 解析、OCR、多次 LLM 调用、文件写入）统一在此函数中运行，
         通过 asyncio.to_thread 卸载到线程池，不阻塞事件循环。
         """
+        from llm_audit.context import collect_traces
         nonlocal pdf_bytes, session_id, vision_model
         trace = PerfTrace("auth_request.process", user.id)
 
         try:
-            # 提取文字
-            pdf_text = ""
-            with trace.step("pdf_text"):
-                with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
-                    for page in pdf.pages:
-                        t = page.extract_text()
-                        if t:
-                            pdf_text += t + "\n"
-                pdf_text = pdf_text.strip()
-            if not pdf_text:
-                with trace.step("ocr"):
-                    pdf_text = ocr_pdf_with_vision(pdf_bytes, model=vision_model)
+            with collect_traces() as bucket:
+                # 提取文字
+                pdf_text = ""
+                with trace.step("pdf_text"):
+                    with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+                        for page in pdf.pages:
+                            t = page.extract_text()
+                            if t:
+                                pdf_text += t + "\n"
+                    pdf_text = pdf_text.strip()
+                if not pdf_text:
+                    with trace.step("ocr"):
+                        pdf_text = ocr_pdf_with_vision(pdf_bytes, model=vision_model)
 
-            # AI 提取字段 + 生成文档
-            with trace.step("extract_info"):
-                info = extract_approval_info(pdf_text)
-            with trace.step("draft_documents"):
-                docs = draft_auth_documents(info)
-            auth_content = docs["auth_content"]
-            letter_content = docs["letter_content"]
+                # AI 提取字段 + 生成文档
+                with trace.step("extract_info"):
+                    info = extract_approval_info(pdf_text)
+                with trace.step("draft_documents"):
+                    docs = draft_auth_documents(info)
+                auth_content = docs["auth_content"]
+                letter_content = docs["letter_content"]
 
-            # 生成授权请示 Word
-            with trace.step("write_docx"):
-                with tempfile.NamedTemporaryFile(suffix=".docx", delete=False, prefix="授权请示_") as tmp:
-                    docx_path = tmp.name
-                save_as_docx(auth_content, docx_path)
-                with open(docx_path, "rb") as f:
-                    docx_b64 = base64.b64encode(f.read()).decode()
-                os.unlink(docx_path)
+                # 生成授权请示 Word
+                with trace.step("write_docx"):
+                    with tempfile.NamedTemporaryFile(suffix=".docx", delete=False, prefix="授权请示_") as tmp:
+                        docx_path = tmp.name
+                    save_as_docx(auth_content, docx_path)
+                    with open(docx_path, "rb") as f:
+                        docx_b64 = base64.b64encode(f.read()).decode()
+                    os.unlink(docx_path)
 
-            # 生成授权书 Word
-            with trace.step("write_letter_docx"):
-                with tempfile.NamedTemporaryFile(suffix=".docx", delete=False, prefix="授权书_") as tmp:
-                    letter_path = tmp.name
-                save_auth_letter_as_docx(letter_content, letter_path)
-                with open(letter_path, "rb") as f:
-                    letter_b64 = base64.b64encode(f.read()).decode()
-                os.unlink(letter_path)
+                # 生成授权书 Word
+                with trace.step("write_letter_docx"):
+                    with tempfile.NamedTemporaryFile(suffix=".docx", delete=False, prefix="授权书_") as tmp:
+                        letter_path = tmp.name
+                    save_auth_letter_as_docx(letter_content, letter_path)
+                    with open(letter_path, "rb") as f:
+                        letter_b64 = base64.b64encode(f.read()).decode()
+                    os.unlink(letter_path)
 
-            project_name = info.get("项目名称") or "授权请示"
-            title = "关于{}相关工作授权的请示".format(
-                project_name[:15] if len(project_name) > 15 else project_name
-            )
+                project_name = info.get("项目名称") or "授权请示"
+                title = "关于{}相关工作授权的请示".format(
+                    project_name[:15] if len(project_name) > 15 else project_name
+                )
 
-            return {
-                "info": info,
-                "auth_content": auth_content,
-                "letter_content": letter_content,
-                "docx_b64": docx_b64,
-                "letter_b64": letter_b64,
-                "project_name": project_name,
-                "title": title,
-            }
+                return {
+                    "info": info,
+                    "auth_content": auth_content,
+                    "letter_content": letter_content,
+                    "docx_b64": docx_b64,
+                    "letter_b64": letter_b64,
+                    "project_name": project_name,
+                    "title": title,
+                    "llm_trace_ids": list(bucket.ids),
+                }
         finally:
             trace.finish()
 
@@ -139,6 +142,7 @@ async def process_auth_request(
         "ledger_filename": None,
         "title": result["title"],
         "info": info,
+        "llm_trace_ids": result.get("llm_trace_ids", []),
     }
 
 
