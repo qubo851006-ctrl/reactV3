@@ -37,7 +37,11 @@ def classify_training(notice_text: str, sign_in_topic: str) -> str:
 请只输出类别名称，不要有任何解释，例如：合规培训
 """
 
-    response = client.chat.completions.create(
+    from llm_audit import traced_complete
+    response = traced_complete(
+        client,
+        scene="classify_training_category",
+        prompt_template_id="training.classify.v1",
         model=MODEL_CLASSIFY,
         messages=[{"role": "user", "content": prompt}],
     )

@@ -120,7 +120,11 @@ def _extract_training_time(notice_text: str) -> dict:
 - 如果通知中没有明确的时间信息，全部填写为空：开始时间：、结束时间：、天数：1
 """
 
-        response = client.chat.completions.create(
+        from llm_audit import traced_complete
+        response = traced_complete(
+            client,
+            scene="training_extract_time",
+            prompt_template_id="training.extract_time.v1",
             model=model,
             messages=[{"role": "user", "content": prompt}],
         )

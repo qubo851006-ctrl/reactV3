@@ -44,7 +44,11 @@ def get_vision_client(model: str) -> OpenAI:
 
 def _call_vision(client: OpenAI, image_url: str, prompt: str, model: str) -> str:
     """向视觉模型发送一次请求，返回原始文本"""
-    response = client.chat.completions.create(
+    from llm_audit import traced_complete
+    response = traced_complete(
+        client,
+        scene="vision_analyze_image",
+        prompt_template_id="vision.analyze.v1",
         model=model,
         messages=[
             {

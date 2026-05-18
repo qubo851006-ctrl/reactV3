@@ -1,16 +1,30 @@
 """LLM call audit — persistent traces for every LLM call.
 
 Public API:
+    # Manual span (full control)
     from llm_audit import get_tracer
     with get_tracer().sync_span("extract_case_fields") as span:
         resp = client.chat.completions.create(...)
         span.record(model=..., input_messages=..., output_text=..., usage=resp.usage)
+
+    # Convenience wrapper (covers 95% of call sites)
+    from llm_audit import traced_complete
+    resp = traced_complete(
+        client,
+        scene="extract_case_fields",
+        prompt_template_id="ledger.suosostate.v1",
+        model="qwen2.5-72b",
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=2000, temperature=0.1,
+    )
 
 Why a separate package: the audit table will eventually move to PostgreSQL
 (P0-1) and may grow query/analytics features. Keeping it isolated from
 `models` makes that migration incremental.
 """
 from __future__ import annotations
+
+from typing import Any
 
 from skills.tracer import LLMTracer
 
@@ -31,3 +45,76 @@ def set_tracer(tracer: LLMTracer) -> None:
     """Override the singleton (used by tests / scripts)."""
     global _tracer
     _tracer = tracer
+
+
+def traced_complete(
+    client: Any,
+    *,
+    scene: str,
+    prompt_template_id: str,
+    model: str,
+    messages: list[dict],
+    user_id: int | None = None,
+    session_id: str | None = None,
+    **completion_kwargs: Any,
+):
+    """Sync chat completion wrapped in an audit span.
+
+    Persistence errors are swallowed by the tracer — this call never raises
+    because of tracing. LLM errors propagate normally (and are also captured
+    in the trace row's `error` field).
+    """
+    with get_tracer().sync_span(
+        scene=scene, user_id=user_id, session_id=session_id,
+    ) as span:
+        resp = client.chat.completions.create(
+            model=model, messages=messages, **completion_kwargs,
+        )
+        output_text = None
+        if getattr(resp, "choices", None):
+            try:
+                output_text = resp.choices[0].message.content
+            except (AttributeError, IndexError):
+                output_text = None
+        span.record(
+            model=model,
+            input_messages=messages,
+            output_text=output_text,
+            usage=getattr(resp, "usage", None),
+            prompt_template_id=prompt_template_id,
+        )
+    return resp
+
+
+async def traced_acomplete(
+    async_client: Any,
+    *,
+    scene: str,
+    prompt_template_id: str,
+    model: str,
+    messages: list[dict],
+    user_id: int | None = None,
+    session_id: str | None = None,
+    **completion_kwargs: Any,
+):
+    """Async variant of `traced_complete` for AsyncOpenAI call sites."""
+    async with get_tracer().span(
+        scene=scene, user_id=user_id, session_id=session_id,
+    ) as span:
+        resp = await async_client.chat.completions.create(
+            model=model, messages=messages, **completion_kwargs,
+        )
+        output_text = None
+        if getattr(resp, "choices", None):
+            try:
+                output_text = resp.choices[0].message.content
+            except (AttributeError, IndexError):
+                output_text = None
+        span.record(
+            model=model,
+            input_messages=messages,
+            output_text=output_text,
+            usage=getattr(resp, "usage", None),
+            prompt_template_id=prompt_template_id,
+        )
+    return resp

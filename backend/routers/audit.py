@@ -224,9 +224,13 @@ def _build_review_prompt(rows_a: list[dict], domains: list[str]) -> str:
 def _call_review_llm(rows_a: list[dict], domains: list[str]) -> list[dict]:
     """调用模型B对A的分类结果进行逐条质检，返回需修正的行列表。"""
     import logging
+    from llm_audit import traced_complete
     client = get_llm_client()
     prompt = _build_review_prompt(rows_a, domains)
-    resp = client.chat.completions.create(
+    resp = traced_complete(
+        client,
+        scene="audit_cross_review",
+        prompt_template_id="audit.cross_review.v1",
         model=AUDIT_REVIEW_MODEL,
         messages=[{"role": "user", "content": prompt}],
         temperature=0,
@@ -304,7 +308,11 @@ async def analyze_audit(
 
         # Step 1: 模型 A 固定用 Qwen，避免全局默认模型影响审计分类。
         with trace.step("model_a_classify"):
-            resp_a = client.chat.completions.create(
+            from llm_audit import traced_complete
+            resp_a = traced_complete(
+                client,
+                scene="audit_classify",
+                prompt_template_id="audit.classify.v1",
                 model=AUDIT_CLASSIFY_MODEL,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0,

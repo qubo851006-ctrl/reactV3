@@ -200,7 +200,11 @@ def _ocr_page_with_airchina(page_index: int, img_b64: str) -> tuple[int, str]:
 
 def _ocr_page_with_vision(client, selected_model: str, page_index: int, img_b64: str) -> tuple[int, str]:
     """用视觉模型 OCR 单页图片（降级兜底用）。"""
-    response = client.chat.completions.create(
+    from llm_audit import traced_complete
+    response = traced_complete(
+        client,
+        scene="vision_ocr_page",
+        prompt_template_id="ledger.vision_ocr.v1",
         model=selected_model,
         messages=[{
             "role": "user",
@@ -299,9 +303,13 @@ def ocr_single_page(img_b64: str, model: str | None = None) -> str:
     elif AIRCHINA_API_KEY:
         logging.warning("中航信 OCR 熔断中，直接降级视觉模型")
 
+    from llm_audit import traced_complete
     client = get_llm_client()
     selected_model = resolve_vision_model(model)
-    response = client.chat.completions.create(
+    response = traced_complete(
+        client,
+        scene="vision_ocr_fallback",
+        prompt_template_id="ledger.vision_ocr_fallback.v1",
         model=selected_model,
         messages=[{
             "role": "user",
@@ -344,8 +352,12 @@ def detect_doc_type_by_content(text: str) -> str:
         return "业务情况说明"
 
     # ── LLM 兜底（关键词均未命中时）────────────────────────────
+    from llm_audit import traced_complete
     client = get_llm_client()
-    response = client.chat.completions.create(
+    response = traced_complete(
+        client,
+        scene="detect_doc_type",
+        prompt_template_id="ledger.detect_doc_type.v1",
         model=MODEL_CHAT,
         messages=[{"role": "user", "content": (
             "请判断以下文书是什么类型，只回复类型名称，从下列选项中选一个：\n"
@@ -516,7 +528,11 @@ def _merge_situation_text(client, business_bg: str, litigation_claims: str) -> s
         .replace("{business_bg}", business_bg[:3000])
         .replace("{litigation_claims}", litigation_claims[:3000])
     )
-    resp = client.chat.completions.create(
+    from llm_audit import traced_complete
+    resp = traced_complete(
+        client,
+        scene="merge_case_situation",
+        prompt_template_id="ledger.merge_situation.v1",
         model=MODEL_CHAT,
         messages=[{"role": "user", "content": prompt}],
         max_tokens=1000, temperature=0.1,
@@ -595,38 +611,18 @@ def _ledger_result_from_judgment_fields(fields: dict, stage: str) -> str:
     ])
 
 
-def _traced_complete(client, *, scene: str, prompt_template_id: str,
-                     messages: list, **kwargs):
-    """Wrap a sync chat completion with audit tracing.
-
-    Failure to persist the trace must never break the underlying call —
-    PersistentTracer swallows persistence errors internally.
-    """
-    from llm_audit import get_tracer
-    model = kwargs.pop("model", MODEL_CHAT)
-    with get_tracer().sync_span(scene=scene) as span:
-        resp = client.chat.completions.create(
-            model=model, messages=messages, **kwargs,
-        )
-        span.record(
-            model=model,
-            input_messages=messages,
-            output_text=resp.choices[0].message.content,
-            usage=getattr(resp, "usage", None),
-            prompt_template_id=prompt_template_id,
-        )
-    return resp
-
-
 def _extract_doc_fields(client, doc: dict) -> dict:
+    from llm_audit import traced_complete
+
     dtype = doc["doc_type"]
     text = doc.get("text") or ""
     if dtype in ("起诉状", "上诉状"):
         prompt = PROMPT_SUSOSTATE.replace("{text}", text[:8000])
-        resp = _traced_complete(
+        resp = traced_complete(
             client,
             scene="extract_litigation_fields",
             prompt_template_id="ledger.suosostate.v1",
+            model=MODEL_CHAT,
             messages=[{"role": "user", "content": prompt}],
             max_tokens=2000, temperature=0.1,
         )
@@ -634,10 +630,11 @@ def _extract_doc_fields(client, doc: dict) -> dict:
 
     if dtype == "业务情况说明":
         prompt = PROMPT_BUSINESS_DESC.replace("{text}", text[:8000])
-        resp = _traced_complete(
+        resp = traced_complete(
             client,
             scene="extract_business_fields",
             prompt_template_id="ledger.business_desc.v1",
+            model=MODEL_CHAT,
             messages=[{"role": "user", "content": prompt}],
             max_tokens=800, temperature=0.1,
         )
@@ -646,10 +643,11 @@ def _extract_doc_fields(client, doc: dict) -> dict:
     if dtype in ("一审判决书", "二审判决书", "判决书", "裁定书", "再审申请书"):
         text_for_prompt = (text[:5000] + "\n……（中间省略）……\n" + text[-3000:]) if len(text) > 8000 else text
         prompt = PROMPT_JUDGMENT.replace("{text}", text_for_prompt)
-        resp = _traced_complete(
+        resp = traced_complete(
             client,
             scene="extract_judgment_fields",
             prompt_template_id="ledger.judgment.v1",
+            model=MODEL_CHAT,
             messages=[{"role": "user", "content": prompt}],
             max_tokens=2000, temperature=0.1,
         )
@@ -657,10 +655,11 @@ def _extract_doc_fields(client, doc: dict) -> dict:
 
     if dtype == "强制执行申请书":
         prompt = PROMPT_EXECUTION.replace("{text}", text[:4000])
-        resp = _traced_complete(
+        resp = traced_complete(
             client,
             scene="extract_execution_fields",
             prompt_template_id="ledger.execution.v1",
+            model=MODEL_CHAT,
             messages=[{"role": "user", "content": prompt}],
             max_tokens=200, temperature=0.1,
         )
@@ -826,8 +825,12 @@ def find_matching_case_idx(new_case: dict, existing_cases: list, docs: list = No
         f'注意：重点比对当事人姓名/公司名称和案由是否一致。\n'
         f'如果找到匹配，只回复编号数字（如：0）。如果没有匹配，回复 -1。不要有其他内容。'
     )
+    from llm_audit import traced_complete
     client = get_llm_client()
-    response = client.chat.completions.create(
+    response = traced_complete(
+        client,
+        scene="match_existing_case",
+        prompt_template_id="ledger.match_case.v1",
         model=MODEL_CHAT,
         messages=[{"role": "user", "content": prompt}],
         max_tokens=10,

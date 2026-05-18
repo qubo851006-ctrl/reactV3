@@ -645,11 +645,15 @@ def _append_warning(item: dict[str, Any], warning: str) -> dict[str, Any]:
 
 def extract_compliance_item(text: str, responsible_persons: dict[str, str] | None = None) -> dict[str, Any]:
     from llm_client import get_llm_client
+    from llm_audit import traced_complete
 
     persons = responsible_persons or load_responsible_persons()
     client = get_llm_client()
 
-    extract_response = client.chat.completions.create(
+    extract_response = traced_complete(
+        client,
+        scene="compliance_extract",
+        prompt_template_id="compliance.extract.v1",
         model=COMPLIANCE_EXTRACT_MODEL,
         messages=[{"role": "user", "content": _build_extract_prompt(text, persons)}],
         temperature=0,
@@ -659,7 +663,10 @@ def extract_compliance_item(text: str, responsible_persons: dict[str, str] | Non
     extracted = _parse_json_object(extract_raw)
 
     try:
-        review_response = client.chat.completions.create(
+        review_response = traced_complete(
+            client,
+            scene="compliance_review",
+            prompt_template_id="compliance.review.v1",
             model=COMPLIANCE_REVIEW_MODEL,
             messages=[{"role": "user", "content": _build_review_prompt(text, persons, extracted)}],
             temperature=0,

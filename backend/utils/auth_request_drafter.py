@@ -122,8 +122,12 @@ _AUTH_LETTER_PROMPT_TMPL = """你是一名精通国有企业公文写作的专�
 
 
 def extract_approval_info(pdf_text):
+    from llm_audit import traced_complete
     prompt = _EXTRACT_PROMPT_TMPL.replace("{text}", pdf_text[:10000])
-    resp = _get_client().chat.completions.create(
+    resp = traced_complete(
+        _get_client(),
+        scene="auth_extract_approval_info",
+        prompt_template_id="auth.extract_approval.v1",
         model=MODEL_CHAT,
         messages=[{"role": "user", "content": prompt}],
         max_tokens=3000,
@@ -188,7 +192,11 @@ def draft_auth_request(info):
         .replace("{fj_extra}", fj_extra)
     )
 
-    resp = _get_client().chat.completions.create(
+    from llm_audit import traced_complete
+    resp = traced_complete(
+        _get_client(),
+        scene="auth_draft_request",
+        prompt_template_id="auth.draft_request.v1",
         model=MODEL_CHAT,
         messages=[{"role": "user", "content": prompt}],
         max_tokens=4000,
@@ -215,7 +223,11 @@ def draft_auth_letter(info):
         .replace("{bqdw}", bqdw)
         .replace("{sq}", items_text)
     )
-    resp = _get_client().chat.completions.create(
+    from llm_audit import traced_complete
+    resp = traced_complete(
+        _get_client(),
+        scene="auth_draft_letter_scope",
+        prompt_template_id="auth.letter_scope.v1",
         model=MODEL_CHAT,
         messages=[{"role": "user", "content": scope_prompt}],
         max_tokens=2000,
