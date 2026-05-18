@@ -1,17 +1,20 @@
 """SQLAlchemy model for LLM call audit traces.
 
-Lives in the same metadata as the rest of the app (db.Base) so the existing
-init_db / create_all flow picks it up. When P0-1 migrates to PostgreSQL we
-can move just this table to its own engine without touching consumers.
+Lives on its own metadata (llm_audit.db.AuditBase) so the table can target
+PostgreSQL independently of the main SQLite app DB.
+
+Note: `user_id` is NOT a ForeignKey anymore — the users table lives in a
+different database, so cross-DB FKs aren't enforceable. Treat it as a soft
+reference; joins happen at query time in application code.
 """
 from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from db import Base
+from llm_audit.db import AuditBase as Base
 
 
 def _now() -> datetime:
@@ -63,8 +66,10 @@ class LLMTrace(Base):
 
     # ── Context ───────────────────────────────────────────────────────
     user_id: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id"), nullable=True, index=True,
+        Integer, nullable=True, index=True,
     )
+    """Soft reference to users.id in the main app DB; not a FK because the
+    users table lives in a different database."""
     session_id: Mapped[str | None] = mapped_column(
         String(64), nullable=True, index=True,
     )

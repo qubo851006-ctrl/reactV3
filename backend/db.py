@@ -34,9 +34,19 @@ def get_db():
 
 def init_db():
     import models  # noqa: F401 — register core models before create_all
-    import llm_audit.models  # noqa: F401 — register LLM audit table
     Base.metadata.create_all(engine)
     _seed()
+    # llm_traces lives in a separate database (PostgreSQL). Initialise it
+    # but don't let its failure break app startup — tracing degrades to
+    # NoopTracer when the audit DB is unreachable.
+    try:
+        from llm_audit.db import init_audit_db
+        if init_audit_db():
+            import logging
+            logging.getLogger(__name__).info("llm_audit DB initialised")
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("llm_audit DB init failed (non-fatal)")
 
 
 def _seed():

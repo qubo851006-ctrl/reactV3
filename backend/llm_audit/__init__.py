@@ -33,11 +33,21 @@ _tracer: LLMTracer | None = None
 
 def get_tracer() -> LLMTracer:
     """Lazy-initialised singleton — avoids importing PersistentTracer at
-    module load time so test code can swap in NoopTracer first."""
+    module load time so test code can swap in NoopTracer first.
+
+    If the audit DB isn't reachable, returns a NoopTracer so business calls
+    proceed unaffected. The dispatcher already handles tracer failures, so
+    this is belt-and-braces.
+    """
     global _tracer
     if _tracer is None:
-        from llm_audit.tracer import PersistentTracer
-        _tracer = PersistentTracer()
+        from llm_audit.db import get_audit_session_factory
+        if get_audit_session_factory() is None:
+            from skills.tracer import NoopTracer
+            _tracer = NoopTracer()
+        else:
+            from llm_audit.tracer import PersistentTracer
+            _tracer = PersistentTracer()
     return _tracer
 
 

@@ -15,14 +15,15 @@ from sqlalchemy.orm import sessionmaker  # noqa: E402
 
 
 def _isolated_session_factory(tmp_db: Path):
-    """Build a fresh engine + SessionLocal pointed at a tempfile DB with all
-    tables. Returns (engine, SessionLocal); caller MUST dispose the engine
-    in tearDown so Windows can unlink the file."""
-    # Import in this order to register both the core models and the audit
-    # model against the shared Base before create_all.
-    import db as db_module
-    import models  # noqa: F401
-    import llm_audit.models  # noqa: F401
+    """Build a fresh engine + SessionLocal pointed at a tempfile SQLite DB,
+    create only the llm_traces table on it. Returns (engine, SessionLocal);
+    caller MUST dispose the engine in tearDown so Windows can unlink the file.
+
+    After the P0-1 split, llm_traces lives on AuditBase (independent of the
+    main app's Base), so we only create_all on AuditBase here.
+    """
+    from llm_audit.db import AuditBase
+    import llm_audit.models  # noqa: F401 — registers LLMTrace on AuditBase
 
     engine = create_engine(
         f"sqlite:///{tmp_db}",
@@ -34,7 +35,7 @@ def _isolated_session_factory(tmp_db: Path):
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA busy_timeout=5000")
 
-    db_module.Base.metadata.create_all(engine)
+    AuditBase.metadata.create_all(engine)
     return engine, sessionmaker(bind=engine)
 
 

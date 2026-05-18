@@ -18,7 +18,7 @@ from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timezone
 from typing import AsyncIterator, Iterator
 
-from db import SessionLocal
+from llm_audit.db import get_audit_session_factory
 from llm_audit.models import LLMTrace
 from skills.tracer import TraceSpan
 
@@ -66,8 +66,10 @@ class PersistentTracer:
     enter, capture results from the span on exit, and persist atomically.
     """
 
-    def __init__(self, session_factory=SessionLocal):
-        self._session_factory = session_factory
+    def __init__(self, session_factory=None):
+        """`session_factory` defaults to the audit DB's sessionmaker. Tests
+        inject a tempfile SQLite SessionLocal."""
+        self._session_factory = session_factory or get_audit_session_factory()
 
     @asynccontextmanager
     async def span(
@@ -132,6 +134,11 @@ class PersistentTracer:
         duration_ms: int,
         error_text: str | None,
     ) -> None:
+        if self._session_factory is None:
+            # Audit DB unavailable; silently drop. The dispatcher's
+            # NoopTracer fallback path normally prevents this, but if
+            # PG drops mid-session the singleton remains a PersistentTracer.
+            return
         row = LLMTrace(
             trace_id=trace_id,
             scene=span.scene,

@@ -24,9 +24,9 @@ Usage from inside a skill:
 """
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator, Protocol
+from typing import Any, AsyncIterator, Iterator, Protocol
 
 
 @dataclass
@@ -87,7 +87,9 @@ class LLMTracer(Protocol):
 
 
 class NoopTracer:
-    """Default tracer used until P0-2 lands. Discards everything."""
+    """Default tracer used when no audit DB is reachable. Discards everything
+    but supports both `span` (async) and `sync_span` so the same call sites
+    work whether or not tracing is configured."""
 
     @asynccontextmanager
     async def span(
@@ -97,6 +99,16 @@ class NoopTracer:
         user_id: int | None = None,
         session_id: str | None = None,
     ) -> AsyncIterator[TraceSpan]:
+        yield TraceSpan(scene=scene, user_id=user_id, session_id=session_id)
+
+    @contextmanager
+    def sync_span(
+        self,
+        scene: str,
+        *,
+        user_id: int | None = None,
+        session_id: str | None = None,
+    ) -> Iterator[TraceSpan]:
         yield TraceSpan(scene=scene, user_id=user_id, session_id=session_id)
 
 
