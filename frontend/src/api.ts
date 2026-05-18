@@ -452,3 +452,48 @@ export async function getLlmSceneStats(): Promise<LlmSceneStats[]> {
   const d = await r.json() as { scenes: LlmSceneStats[] }
   return d.scenes ?? []
 }
+
+export interface LlmTraceSummary {
+  trace_id: string
+  scene: string
+  model: string | null
+  prompt_template_id: string | null
+  tokens_in: number
+  tokens_out: number
+  duration_ms: number
+  user_id: number | null
+  session_id: string | null
+  input_preview: string | null
+  accepted: boolean | null
+  has_error: boolean
+  created_at: string | null
+}
+
+export interface LlmTraceDetail extends LlmTraceSummary {
+  input_text: string | null
+  output_text: string | null
+  input_hash: string
+  edited_to: string | null
+  error: string | null
+}
+
+export async function listLlmTraces(params: {
+  scene?: string
+  hasError?: boolean
+  limit?: number
+} = {}): Promise<LlmTraceSummary[]> {
+  const qs = new URLSearchParams()
+  if (params.scene) qs.set('scene', params.scene)
+  if (params.hasError !== undefined) qs.set('has_error', String(params.hasError))
+  qs.set('limit', String(params.limit ?? 20))
+  const r = await apiFetch(`${BASE}/llm-traces?${qs.toString()}`)
+  if (!r.ok) throw new Error(await r.text())
+  const d = await r.json() as { traces: LlmTraceSummary[] }
+  return d.traces ?? []
+}
+
+export async function getLlmTraceDetail(traceId: string): Promise<LlmTraceDetail> {
+  const r = await apiFetch(`${BASE}/llm-traces/${encodeURIComponent(traceId)}`)
+  if (!r.ok) throw new Error(await r.text())
+  return r.json()
+}
