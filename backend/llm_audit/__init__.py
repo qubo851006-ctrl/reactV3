@@ -79,6 +79,16 @@ def _resolve_messages_with_few_shot(
         return messages
 
 
+def _resolve_model_for_scene(scene: str, caller_model: str) -> str:
+    """Look up the scene→model routing table. Falls back to caller_model
+    when no routing exists (e.g. vision scenes)."""
+    try:
+        from llm_audit.scene_models import resolve_model
+        return resolve_model(scene, caller_model) or caller_model
+    except Exception:
+        return caller_model
+
+
 def traced_complete(
     client: Any,
     *,
@@ -97,16 +107,20 @@ def traced_complete(
     same scene as a system prompt. Vision scenes (`vision_*`, `ledger.vision_*`)
     auto-skip injection regardless of this flag.
 
+    `model` is the caller's preferred default — `llm_audit.scene_models`
+    can override it per-scene (P1-3 routing). Vision scenes pass through.
+
     Persistence errors are swallowed by the tracer — this call never raises
     because of tracing. LLM errors propagate normally (and are also captured
     in the trace row's `error` field).
     """
     final_messages = _resolve_messages_with_few_shot(messages, scene, inject_few_shot)
+    effective_model = _resolve_model_for_scene(scene, model)
     with get_tracer().sync_span(
         scene=scene, user_id=user_id, session_id=session_id,
     ) as span:
         resp = client.chat.completions.create(
-            model=model, messages=final_messages, **completion_kwargs,
+            model=effective_model, messages=final_messages, **completion_kwargs,
         )
         output_text = None
         if getattr(resp, "choices", None):
@@ -115,7 +129,7 @@ def traced_complete(
             except (AttributeError, IndexError):
                 output_text = None
         span.record(
-            model=model,
+            model=effective_model,
             input_messages=final_messages,
             output_text=output_text,
             usage=getattr(resp, "usage", None),
@@ -138,11 +152,12 @@ async def traced_acomplete(
 ):
     """Async variant of `traced_complete` for AsyncOpenAI call sites."""
     final_messages = _resolve_messages_with_few_shot(messages, scene, inject_few_shot)
+    effective_model = _resolve_model_for_scene(scene, model)
     async with get_tracer().span(
         scene=scene, user_id=user_id, session_id=session_id,
     ) as span:
         resp = await async_client.chat.completions.create(
-            model=model, messages=final_messages, **completion_kwargs,
+            model=effective_model, messages=final_messages, **completion_kwargs,
         )
         output_text = None
         if getattr(resp, "choices", None):
@@ -151,7 +166,7 @@ async def traced_acomplete(
             except (AttributeError, IndexError):
                 output_text = None
         span.record(
-            model=model,
+            model=effective_model,
             input_messages=final_messages,
             output_text=output_text,
             usage=getattr(resp, "usage", None),
