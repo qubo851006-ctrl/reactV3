@@ -15,10 +15,61 @@ interface PieLabelProps {
 }
 
 const COLORS = ['#6366f1', '#22d3ee', '#f59e0b', '#10b981', '#f43f5e', '#a78bfa']
+const CHART_CAPTURE_TIMEOUT_MS = 10000
+const CLIPBOARD_WRITE_TIMEOUT_MS = 6000
+const BLOB_CREATE_TIMEOUT_MS = 4000
+
+type CopyState = 'idle' | 'copying' | 'failed' | 'downloaded'
 
 /**
- * Pie chart + auto-generated breakdown sentence + "copy as image"
- * button (uses html2canvas → clipboard).
+ * Wrap a promise with a timeout so html2canvas / clipboard.write can't
+ * hang the UI forever (seen in V2 on flaky browsers — the operation
+ * succeeded but never resolved, leaving the button stuck on '复制中…').
+ */
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error(message)), timeoutMs)
+    promise.then(
+      value => { window.clearTimeout(timer); resolve(value) },
+      error => { window.clearTimeout(timer); reject(error) },
+    )
+  })
+}
+
+function canvasToPngBlob(canvas: HTMLCanvasElement): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(blob => {
+      if (blob) resolve(blob)
+      else reject(new Error('图片生成失败'))
+    }, 'image/png')
+  })
+}
+
+function canWriteImageToClipboard() {
+  return typeof ClipboardItem !== 'undefined' && !!navigator.clipboard?.write
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+/**
+ * Pie chart + auto-generated breakdown sentence + "copy as image" button.
+ *
+ * Copy strategy (ported from V2 commits 27c2203 + aec04a6):
+ * 1. Render the chart into a canvas via html2canvas (timeout-guarded).
+ * 2. Convert canvas → PNG blob (timeout-guarded).
+ * 3. If the browser exposes ClipboardItem + clipboard.write, try copying.
+ *    Otherwise (Firefox before 127, Safari without HTTPS, etc.) skip
+ *    straight to download.
+ * 4. If clipboard.write fails (e.g. user denied permission), fall back
+ *    to downloading the blob as <title>.png so the user still gets
+ *    something useful.
  *
  * Lifted out of AuditFlow.tsx as part of file-size cleanup.
  */
@@ -34,8 +85,7 @@ export default function PieSection({
   suffix: string
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const [copying, setCopying] = useState(false)
-  const [copyError, setCopyError] = useState(false)
+  const [copyState, setCopyState] = useState<CopyState>('idle')
 
   const sorted = [...data].sort((a, b) => b.value - a.value)
   const top = sorted[0]
@@ -48,33 +98,62 @@ export default function PieSection({
   async function copyChart() {
     const el = containerRef.current
     if (!el) return
-    setCopying(true)
+    let fallbackBlob: Blob | null = null
+    setCopyState('copying')
     el.style.backgroundColor = 'white'
     try {
-      const canvas = await html2canvas(el, {
+      const canvas = await withTimeout(html2canvas(el, {
         backgroundColor: '#ffffff',
         scale: 2,
         useCORS: true,
+        imageTimeout: 5000,
+        logging: false,
         width: el.scrollWidth,
         height: el.scrollHeight,
         windowWidth: el.scrollWidth,
         windowHeight: el.scrollHeight,
-      })
-      await new Promise<void>((resolve, reject) => {
-        canvas.toBlob(async (blob) => {
-          if (!blob) { reject(new Error('截图失败')); return }
-          navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
-            .then(resolve).catch(reject)
-        })
-      })
-    } catch {
-      setCopyError(true)
-      setTimeout(() => setCopyError(false), 3000)
+      }), CHART_CAPTURE_TIMEOUT_MS, '图表截图超时')
+      const blob = await withTimeout(canvasToPngBlob(canvas), BLOB_CREATE_TIMEOUT_MS, '图片生成超时')
+      fallbackBlob = blob
+      if (!canWriteImageToClipboard()) {
+        downloadBlob(blob, `${title}.png`)
+        setCopyState('downloaded')
+        window.setTimeout(() => setCopyState('idle'), 3000)
+        return
+      }
+      await withTimeout(
+        navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]),
+        CLIPBOARD_WRITE_TIMEOUT_MS,
+        '剪贴板写入超时',
+      )
+      setCopyState('idle')
+    } catch (e) {
+      // eslint-disable-next-line no-console -- intentional warn so users can
+      // open devtools and report the cause if all paths fail.
+      console.warn('Copy audit chart failed:', e)
+      if (fallbackBlob) {
+        downloadBlob(fallbackBlob, `${title}.png`)
+        setCopyState('downloaded')
+        window.setTimeout(() => setCopyState('idle'), 3000)
+      } else {
+        setCopyState('failed')
+        window.setTimeout(() => setCopyState('idle'), 3000)
+      }
     } finally {
       el.style.backgroundColor = ''
-      setCopying(false)
     }
   }
+
+  const copying = copyState === 'copying'
+  const copyFailed = copyState === 'failed'
+  const copiedToDownload = copyState === 'downloaded'
+  const buttonText = copying
+    ? '复制中…'
+    : copiedToDownload
+      ? '已下载PNG'
+      : copyFailed
+        ? '复制失败'
+        : '⬜ 复制图片'
 
   return (
     <div className="relative bg-slate-800/60 border border-slate-700 rounded-2xl p-5 mb-4">
@@ -83,13 +162,21 @@ export default function PieSection({
         onClick={copyChart}
         disabled={copying}
         className={`absolute top-3 right-3 z-10 text-xs px-2.5 py-1 rounded-md transition-colors disabled:opacity-50 ${
-          copyError
-            ? 'bg-red-700/60 text-red-200'
-            : 'bg-slate-700 hover:bg-slate-600 text-slate-300'
+          copiedToDownload
+            ? 'bg-amber-700/60 text-amber-100'
+            : copyFailed
+              ? 'bg-red-700/60 text-red-200'
+              : 'bg-slate-700 hover:bg-slate-600 text-slate-300'
         }`}
-        title={copyError ? '复制失败，请截图保存' : '复制图片到剪贴板'}
+        title={
+          copiedToDownload
+            ? '剪贴板不可用，已自动下载为 PNG'
+            : copyFailed
+              ? '复制失败，请截图保存'
+              : '复制图片到剪贴板（剪贴板不可用时自动下载）'
+        }
       >
-        {copying ? '复制中…' : copyError ? '复制失败' : '⬜ 复制图片'}
+        {buttonText}
       </button>
       {/* 截图区域：不含按钮 */}
       <div ref={containerRef}>

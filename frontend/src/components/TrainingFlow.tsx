@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react'
 import { extractTraining, writeTraining, downloadTrainingExcel, getErrorMessage, submitLlmFeedback } from '../api'
 import type { TrainingResult } from '../types'
+import { useNotifier } from './NotificationContext'
 
 interface Props {
   onComplete: (reply: string) => void
@@ -11,6 +12,7 @@ interface Props {
 type Step = 'upload' | 'dept' | 'processing' | 'confirm' | 'done'
 
 export default function TrainingFlow({ onComplete, onCancel, visionModel = '' }: Props) {
+  const { notifySuccess, notifyError } = useNotifier()
   const [step, setStep] = useState<Step>('upload')
   const [noticePdf, setNoticePdf] = useState<File | null>(null)
   const [signinImg, setSigninImg] = useState<File | null>(null)
@@ -32,9 +34,12 @@ export default function TrainingFlow({ onComplete, onCancel, visionModel = '' }:
       setExtracted(res)
       setEdited({ ...res })
       setStep('confirm')
+      notifySuccess('培训统计识别完成', '已生成预览结果，请核对后写入统计表。')
     } catch (e: unknown) {
-      setError(getErrorMessage(e, '处理失败'))
+      const message = getErrorMessage(e, '处理失败')
+      setError(message)
       setStep('upload')
+      notifyError('培训统计识别失败', message)
     }
   }
 
@@ -59,9 +64,12 @@ export default function TrainingFlow({ onComplete, onCancel, visionModel = '' }:
       const wasEdited = extracted !== null && JSON.stringify(edited) !== JSON.stringify(extracted)
       submitLlmFeedback(extracted?.llm_trace_ids ?? [], true, wasEdited ? edited : null)
       const durationText = edited.duration_hours > 0 ? `，培训时长：${edited.duration_hours} 课时` : ''
+      notifySuccess('培训统计写入完成', '培训统计表已更新，可以直接下载查看。')
       onComplete(`✅ 培训记录已写入台账！主题：${edited.topic}，参与人数：${edited.count} 人${durationText}`)
     } catch (e: unknown) {
-      setError(getErrorMessage(e, '写入失败'))
+      const message = getErrorMessage(e, '写入失败')
+      setError(message)
+      notifyError('培训统计写入失败', message)
     } finally {
       setWriting(false)
     }

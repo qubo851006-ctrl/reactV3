@@ -11,6 +11,7 @@ import {
   type ComplianceItem,
   type ComplianceReviewRow,
 } from '../api'
+import { useNotifier } from './NotificationContext'
 
 interface Props {
   onComplete: (reply: string) => void
@@ -40,6 +41,7 @@ export default function ComplianceFlow({
   visionModel = '',
   canManageResponsiblePersons = false,
 }: Props) {
+  const { notifySuccess, notifyError } = useNotifier()
   const [step, setStep] = useState<Step>('upload')
   const [file, setFile] = useState<File | null>(null)
   const [drag, setDrag] = useState(false)
@@ -67,9 +69,12 @@ export default function ComplianceFlow({
       setOriginalItem(normalised)  // snapshot for edit-detection
       setTraceIds(llm_trace_ids)
       setStep('review')
+      notifySuccess('合规审查台账提取完成', '已生成预览结果，请核对后写入累计台账。')
     } catch (e: unknown) {
-      setError(getErrorMessage(e, '提取失败'))
+      const message = getErrorMessage(e, '提取失败')
+      setError(message)
       setStep('upload')
+      notifyError('合规审查台账提取失败', message)
     }
   }
 
@@ -83,9 +88,12 @@ export default function ComplianceFlow({
       const wasEdited = originalItem !== null
         && JSON.stringify(item) !== JSON.stringify(originalItem)
       submitLlmFeedback(traceIds, true, wasEdited ? item : null)
+      notifySuccess('合规审查台账写入完成', '累计台账已更新，可以直接下载查看。')
       onComplete(res.reply)
     } catch (e: unknown) {
-      setError(getErrorMessage(e, '写入失败'))
+      const message = getErrorMessage(e, '写入失败')
+      setError(message)
+      notifyError('合规审查台账写入失败', message)
     } finally {
       setWriting(false)
     }

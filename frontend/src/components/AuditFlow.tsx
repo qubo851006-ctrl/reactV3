@@ -3,6 +3,7 @@ import type { AuditRow } from '../api'
 import { analyzeAudit, downloadAuditExcel, getErrorMessage, submitLlmFeedback } from '../api'
 import TagGroup from './audit/TagGroup'
 import PieSection from './audit/PieSection'
+import { useNotifier } from './NotificationContext'
 
 interface Props {
   onComplete: (reply: string) => void
@@ -36,6 +37,7 @@ const DEFAULT_DOMAINS = ['物业租赁', '酒店公寓', '工程领域', '资产
 // ── 主组件 ──────────────────────────────────────────────────────
 
 export default function AuditFlow({ onComplete, onCancel }: Props) {
+  const { notifySuccess, notifyError } = useNotifier()
   const [phase, setPhase] = useState<Phase>('upload')
   const [file, setFile] = useState<File | null>(null)
   const [dragging, setDragging] = useState(false)
@@ -83,9 +85,12 @@ export default function AuditFlow({ onComplete, onCancel }: Props) {
       setOriginalRows(result.rows.map(r => ({ ...r })))
       setTraceIds(result.llm_trace_ids ?? [])
       setPhase('review')
+      notifySuccess('审计问题分析完成', `共分析 ${result.rows.length} 条问题，请审查确认分类结果。`)
     } catch (e: unknown) {
-      setError(getErrorMessage(e, '分析失败，请重试'))
+      const message = getErrorMessage(e, '分析失败，请重试')
+      setError(message)
       setPhase('upload')
+      notifyError('审计问题分析失败', message)
     }
   }
 
@@ -124,7 +129,9 @@ export default function AuditFlow({ onComplete, onCancel }: Props) {
       const baseName = file?.name.replace(/\.(xlsx|xls)$/i, '') || '审计问题分析结果'
       await downloadAuditExcel(rows, baseName)
     } catch (e: unknown) {
-      setError(getErrorMessage(e, '下载失败'))
+      const message = getErrorMessage(e, '下载失败')
+      setError(message)
+      notifyError('审计分析结果下载失败', message)
     } finally {
       setDownloading(false)
     }
@@ -382,7 +389,10 @@ export default function AuditFlow({ onComplete, onCancel }: Props) {
               重新上传
             </button>
             <button
-              onClick={() => setPhase('report')}
+              onClick={() => {
+                setPhase('report')
+                notifySuccess('审计分析报告已生成', '两张分布图已生成，可以复制图片或下载 Excel。')
+              }}
               className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm rounded-lg transition-colors"
             >
               生成报告

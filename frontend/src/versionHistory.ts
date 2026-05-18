@@ -2,6 +2,14 @@ import type { VersionEntry } from './branding'
 
 export const VERSION_ENTRIES: VersionEntry[] = [
   {
+    version: 'v3.0.1',
+    date: '2026-05-18',
+    changes: [
+      { type: 'feat', text: 'AI 任务完成通知系统：5 大流程（案件台账 / 合规审查 / 授权请示 / 培训统计 / 三台账合并 / 审计分析）任务完成或失败时，右上角自动弹出气泡 + 浏览器标签页标题闪烁 + 系统通知（需用户授权）' },
+      { type: 'feat', text: '审计分析饼图复制：剪贴板写入支持超时熔断；剪贴板不可用或失败时自动改为下载 PNG 文件兜底' },
+    ],
+  },
+  {
     version: 'v2.26',
     date: '2026-05-15',
     changes: [

@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react'
 import { processAuthRequest, recordAuthRequestLedger, downloadDocx, getErrorMessage, submitLlmFeedback } from '../api'
+import { useNotifier } from './NotificationContext'
 
 function downloadXlsx(base64: string, filename: string) {
   const bytes = atob(base64)
@@ -39,6 +40,7 @@ interface AuthResult {
 }
 
 export default function AuthFlow({ onComplete, onCancel, visionModel = '' }: Props) {
+  const { notifySuccess, notifyError } = useNotifier()
   const [pdfFile, setPdfFile] = useState<File | null>(null)
   const [processing, setProcessing] = useState(false)
   const [result, setResult] = useState<AuthResult | null>(null)
@@ -55,8 +57,11 @@ export default function AuthFlow({ onComplete, onCancel, visionModel = '' }: Pro
     try {
       const res = await processAuthRequest(pdfFile, visionModel)
       setResult(res as AuthResult)
+      notifySuccess('授权请示生成完成', '授权请示和授权书已生成，可以预览或下载。')
     } catch (e: unknown) {
-      setError(getErrorMessage(e, '处理失败'))
+      const message = getErrorMessage(e, '处理失败')
+      setError(message)
+      notifyError('授权请示生成失败', message)
     } finally {
       setProcessing(false)
     }
@@ -74,8 +79,11 @@ export default function AuthFlow({ onComplete, onCancel, visionModel = '' }: Pro
         ledger_base64: ledger.ledger_base64,
         ledger_filename: ledger.ledger_filename,
       })
+      notifySuccess('授权台账记录完成', '授权委托台账已更新，可以下载查看。')
     } catch (e: unknown) {
-      setError(getErrorMessage(e, '台账记录失败'))
+      const message = getErrorMessage(e, '台账记录失败')
+      setError(message)
+      notifyError('授权台账记录失败', message)
     } finally {
       setRecordingLedger(false)
     }
