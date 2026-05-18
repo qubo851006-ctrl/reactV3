@@ -239,14 +239,17 @@ export interface ComplianceItem {
   warnings?: string[]
 }
 
-export async function extractComplianceLedger(pdfFile: File, visionModel: string): Promise<ComplianceItem> {
+export async function extractComplianceLedger(
+  pdfFile: File,
+  visionModel: string,
+): Promise<{ item: ComplianceItem; llm_trace_ids: string[] }> {
   const form = new FormData()
   form.append('pdf_file', pdfFile)
   form.append('vision_model', visionModel)
   const r = await apiFetch(`${BASE}/compliance/extract`, { method: 'POST', body: form })
   if (!r.ok) throw new Error(await r.text())
-  const d = await r.json() as { item: ComplianceItem }
-  return d.item
+  const d = await r.json() as { item: ComplianceItem; llm_trace_ids?: string[] }
+  return { item: d.item, llm_trace_ids: d.llm_trace_ids ?? [] }
 }
 
 export async function writeComplianceLedger(item: ComplianceItem): Promise<{ ok: boolean; count: number; sequence: number; reply: string }> {
@@ -396,4 +399,54 @@ export function downloadDocx(base64: string, filename: string) {
   a.download = filename
   a.click()
   URL.revokeObjectURL(url)
+}
+
+// ── LLM 调用反馈（P1-2 反馈学习闭环） ──────────────────────────
+
+/**
+ * Tell the audit DB whether the user kept the LLM's extracted output
+ * and what they changed it to. Drives the few-shot learning loop.
+ *
+ * Fail-quietly: feedback is a quality booster, not core flow — a network
+ * error here should not surface to the user.
+ */
+export async function submitLlmFeedback(
+  traceIds: string[],
+  accepted: boolean,
+  editedTo: unknown | null = null,
+): Promise<void> {
+  if (!traceIds || traceIds.length === 0) return
+  const editedPayload = editedTo === null
+    ? null
+    : (typeof editedTo === 'string' ? editedTo : JSON.stringify(editedTo, null, 2))
+  await Promise.allSettled(traceIds.map(traceId =>
+    apiFetch(`${BASE}/llm-traces/${encodeURIComponent(traceId)}/feedback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ accepted, edited_to: editedPayload }),
+    }).catch(() => { /* swallow — feedback must not break the flow */ })
+  ))
+}
+
+// ── LLM 追溯仪表盘 (admin) ────────────────────────────────────────
+
+export interface LlmSceneStats {
+  scene: string
+  total: number
+  feedback_count: number
+  accepted_count: number
+  edited_count: number
+  error_count: number
+  acceptance_rate: number | null
+  edit_rate: number | null
+  avg_tokens_in: number
+  avg_tokens_out: number
+  avg_duration_ms: number
+}
+
+export async function getLlmSceneStats(): Promise<LlmSceneStats[]> {
+  const r = await apiFetch(`${BASE}/llm-traces/scenes/stats`)
+  if (!r.ok) throw new Error(await r.text())
+  const d = await r.json() as { scenes: LlmSceneStats[] }
+  return d.scenes ?? []
 }

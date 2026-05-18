@@ -9,7 +9,7 @@ import {
   Tooltip,
 } from 'recharts'
 import type { AuditRow } from '../api'
-import { analyzeAudit, downloadAuditExcel, getErrorMessage } from '../api'
+import { analyzeAudit, downloadAuditExcel, getErrorMessage, submitLlmFeedback } from '../api'
 
 interface Props {
   onComplete: (reply: string) => void
@@ -230,9 +230,16 @@ export default function AuditFlow({ onComplete, onCancel }: Props) {
   const [dragging, setDragging] = useState(false)
   const [domains, setDomains] = useState<string[]>(DEFAULT_DOMAINS)
   const [rows, setRows] = useState<AuditRow[]>([])
+  const [originalRows, setOriginalRows] = useState<AuditRow[]>([])
+  const [traceIds, setTraceIds] = useState<string[]>([])
   const [error, setError] = useState('')
   const [downloading, setDownloading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  function handleCancel() {
+    if (traceIds.length > 0) submitLlmFeedback(traceIds, false, null)
+    onCancel()
+  }
 
   // ── 文件选择 ──
 
@@ -262,6 +269,8 @@ export default function AuditFlow({ onComplete, onCancel }: Props) {
     try {
       const result = await analyzeAudit(file, domains)
       setRows(result.rows)
+      setOriginalRows(result.rows.map(r => ({ ...r })))
+      setTraceIds(result.llm_trace_ids ?? [])
       setPhase('review')
     } catch (e: unknown) {
       setError(getErrorMessage(e, '分析失败，请重试'))
@@ -385,7 +394,7 @@ export default function AuditFlow({ onComplete, onCancel }: Props) {
 
           <div className="flex gap-3">
             <button
-              onClick={onCancel}
+              onClick={handleCancel}
               className="px-4 py-2 text-sm text-slate-400 hover:text-slate-200 border border-slate-600 rounded-lg transition-colors"
             >
               取消
@@ -607,6 +616,8 @@ export default function AuditFlow({ onComplete, onCancel }: Props) {
             </button>
             <button
               onClick={() => {
+                const wasEdited = JSON.stringify(rows) !== JSON.stringify(originalRows)
+                submitLlmFeedback(traceIds, true, wasEdited ? rows : null)
                 onComplete(`✅ 审计分析完成！共分析 ${rows.length} 条问题，报告已生成。`)
               }}
               className="px-4 py-2 text-sm text-slate-400 hover:text-slate-200 border border-slate-600 rounded-lg transition-colors"

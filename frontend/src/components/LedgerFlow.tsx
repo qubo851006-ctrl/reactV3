@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { extractLedger, writeLedger, downloadLedgerExcel, getErrorMessage } from '../api'
+import { extractLedger, writeLedger, downloadLedgerExcel, getErrorMessage, submitLlmFeedback } from '../api'
 import type { LedgerPreview, LedgerCaseData, LedgerStage } from '../types'
 
 interface Props {
@@ -58,12 +58,30 @@ export default function LedgerFlow({ onComplete, onCancel, visionModel = '' }: P
       const res = await writeLedger(editedCase, preview.match_idx, preview.archive_dir, preview.pending_archive_id ?? '', preview.existing_archive_name ?? '')
       setDoneResult({ case_count: res.case_count, archive_dir: res.archive_dir || preview.archive_dir })
       setStep('done')
+      // Feedback: user accepted the extraction. `edited_to` carries the
+      // user-confirmed payload so the few-shot engine can learn what they
+      // actually wanted, even when the AI's first pass was edited.
+      const wasEdited = JSON.stringify(editedCase) !== JSON.stringify(preview.case_data)
+      submitLlmFeedback(
+        preview.llm_trace_ids ?? [],
+        true,
+        wasEdited ? editedCase : null,
+      )
       onComplete(res.reply)
     } catch (e: unknown) {
       setError(getErrorMessage(e, '写入失败'))
     } finally {
       setWriting(false)
     }
+  }
+
+  function handleCancel() {
+    // User dismissed the extraction — record as not accepted so we don't
+    // pollute the few-shot pool with abandoned outputs.
+    if (preview?.llm_trace_ids?.length) {
+      submitLlmFeedback(preview.llm_trace_ids, false, null)
+    }
+    onCancel()
   }
 
   function setField<K extends keyof LedgerCaseData>(key: K, value: LedgerCaseData[K]) {
@@ -207,7 +225,7 @@ export default function LedgerFlow({ onComplete, onCancel, visionModel = '' }: P
             {writing ? '写入中…' : '✅ 确认写入台账'}
           </button>
           <button
-            onClick={onCancel}
+            onClick={handleCancel}
             className="px-3 py-2 text-slate-400 hover:text-slate-200 text-sm transition-colors"
           >
             取消

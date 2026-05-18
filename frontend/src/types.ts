@@ -53,6 +53,8 @@ export interface TrainingResult {
   start_time: string
   end_time: string
   duration_hours: number
+  /** trace ids from the audit DB, for P1-2 feedback */
+  llm_trace_ids?: string[]
 }
 
 export interface LedgerStage {
@@ -84,4 +86,6 @@ export interface LedgerPreview {
   existing_archive_name?: string
   pending_archive_id?: string
   existing_count: number
+  /** trace ids from the audit DB, for P1-2 feedback */
+  llm_trace_ids?: string[]
 }

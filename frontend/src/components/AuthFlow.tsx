@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { processAuthRequest, recordAuthRequestLedger, downloadDocx, getErrorMessage } from '../api'
+import { processAuthRequest, recordAuthRequestLedger, downloadDocx, getErrorMessage, submitLlmFeedback } from '../api'
 
 function downloadXlsx(base64: string, filename: string) {
   const bytes = atob(base64)
@@ -35,6 +35,7 @@ interface AuthResult {
   ledger_filename: string | null
   title: string
   info: unknown
+  llm_trace_ids?: string[]
 }
 
 export default function AuthFlow({ onComplete, onCancel, visionModel = '' }: Props) {
@@ -172,7 +173,12 @@ export default function AuthFlow({ onComplete, onCancel, visionModel = '' }: Pro
             </button>
           )}
           <button
-            onClick={() => onComplete(`✅ 授权请示及授权书已生成：${result.filename}、${result.letter_filename}`)}
+            onClick={() => {
+              // User confirmed the generated docs are useful — record positive
+              // feedback so the few-shot pool grows.
+              submitLlmFeedback(result.llm_trace_ids ?? [], true, null)
+              onComplete(`✅ 授权请示及授权书已生成：${result.filename}、${result.letter_filename}`)
+            }}
             className="px-4 py-2 text-slate-400 hover:text-slate-200 text-sm transition-colors"
           >
             完成
@@ -229,7 +235,11 @@ export default function AuthFlow({ onComplete, onCancel, visionModel = '' }: Pro
           开始生成
         </button>
         <button
-          onClick={onCancel}
+          onClick={() => {
+            // No result yet → nothing to report; just cancel.
+            if (result) submitLlmFeedback((result as AuthResult).llm_trace_ids ?? [], false, null)
+            onCancel()
+          }}
           className="px-3 py-2 text-slate-400 hover:text-slate-200 text-sm transition-colors"
         >
           取消

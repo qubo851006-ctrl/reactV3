@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { extractTraining, writeTraining, downloadTrainingExcel, getErrorMessage } from '../api'
+import { extractTraining, writeTraining, downloadTrainingExcel, getErrorMessage, submitLlmFeedback } from '../api'
 import type { TrainingResult } from '../types'
 
 interface Props {
@@ -56,6 +56,8 @@ export default function TrainingFlow({ onComplete, onCancel, visionModel = '' }:
         duration_hours: edited.duration_hours,
       })
       setStep('done')
+      const wasEdited = extracted !== null && JSON.stringify(edited) !== JSON.stringify(extracted)
+      submitLlmFeedback(extracted?.llm_trace_ids ?? [], true, wasEdited ? edited : null)
       const durationText = edited.duration_hours > 0 ? `，培训时长：${edited.duration_hours} 课时` : ''
       onComplete(`✅ 培训记录已写入台账！主题：${edited.topic}，参与人数：${edited.count} 人${durationText}`)
     } catch (e: unknown) {
@@ -63,6 +65,13 @@ export default function TrainingFlow({ onComplete, onCancel, visionModel = '' }:
     } finally {
       setWriting(false)
     }
+  }
+
+  function handleCancel() {
+    if (extracted?.llm_trace_ids?.length) {
+      submitLlmFeedback(extracted.llm_trace_ids, false, null)
+    }
+    onCancel()
   }
 
   function setField(key: keyof TrainingResult, value: string | number) {
@@ -174,7 +183,7 @@ export default function TrainingFlow({ onComplete, onCancel, visionModel = '' }:
             {writing ? '写入中…' : '✅ 确认写入台账'}
           </button>
           <button
-            onClick={onCancel}
+            onClick={handleCancel}
             className="px-3 py-2 text-slate-400 hover:text-slate-200 text-sm transition-colors"
           >
             取消
@@ -249,7 +258,7 @@ export default function TrainingFlow({ onComplete, onCancel, visionModel = '' }:
             开始处理
           </button>
           <button
-            onClick={onCancel}
+            onClick={handleCancel}
             className="px-3 py-2 text-slate-400 hover:text-slate-200 text-sm transition-colors"
           >
             取消
@@ -292,7 +301,7 @@ export default function TrainingFlow({ onComplete, onCancel, visionModel = '' }:
           下一步
         </button>
         <button
-          onClick={onCancel}
+          onClick={handleCancel}
           className="px-3 py-2 text-slate-400 hover:text-slate-200 text-sm transition-colors"
         >
           取消

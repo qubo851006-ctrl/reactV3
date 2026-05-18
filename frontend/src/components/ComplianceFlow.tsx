@@ -5,6 +5,7 @@ import {
   extractComplianceLedger,
   getComplianceResponsiblePersons,
   getErrorMessage,
+  submitLlmFeedback,
   updateComplianceResponsiblePersons,
   writeComplianceLedger,
   type ComplianceItem,
@@ -43,6 +44,8 @@ export default function ComplianceFlow({
   const [file, setFile] = useState<File | null>(null)
   const [drag, setDrag] = useState(false)
   const [item, setItem] = useState<ComplianceItem | null>(null)
+  const [originalItem, setOriginalItem] = useState<ComplianceItem | null>(null)
+  const [traceIds, setTraceIds] = useState<string[]>([])
   const [error, setError] = useState('')
   const [writing, setWriting] = useState(false)
   const [configOpen, setConfigOpen] = useState(false)
@@ -53,13 +56,16 @@ export default function ComplianceFlow({
     setStep('processing')
     setError('')
     try {
-      const result = await extractComplianceLedger(file, visionModel)
-      setItem({
+      const { item: result, llm_trace_ids } = await extractComplianceLedger(file, visionModel)
+      const normalised: ComplianceItem = {
         ...result,
         undertaking_department: result.undertaking_department || '法务合规部',
         background_materials: result.background_materials ?? [],
         review_rows: result.review_rows?.length ? result.review_rows : [{ ...EMPTY_ROW }],
-      })
+      }
+      setItem(normalised)
+      setOriginalItem(normalised)  // snapshot for edit-detection
+      setTraceIds(llm_trace_ids)
       setStep('review')
     } catch (e: unknown) {
       setError(getErrorMessage(e, '提取失败'))
@@ -74,12 +80,20 @@ export default function ComplianceFlow({
     try {
       const res = await writeComplianceLedger(item)
       setStep('done')
+      const wasEdited = originalItem !== null
+        && JSON.stringify(item) !== JSON.stringify(originalItem)
+      submitLlmFeedback(traceIds, true, wasEdited ? item : null)
       onComplete(res.reply)
     } catch (e: unknown) {
       setError(getErrorMessage(e, '写入失败'))
     } finally {
       setWriting(false)
     }
+  }
+
+  function handleCancel() {
+    if (traceIds.length > 0) submitLlmFeedback(traceIds, false, null)
+    onCancel()
   }
 
   function setField<K extends keyof ComplianceItem>(key: K, value: ComplianceItem[K]) {
@@ -306,7 +320,7 @@ export default function ComplianceFlow({
         <button onClick={handleExtract} disabled={!file} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm rounded-lg">
           开始提取
         </button>
-        <button onClick={onCancel} className="px-3 py-2 text-slate-400 hover:text-slate-200 text-sm">
+        <button onClick={handleCancel} className="px-3 py-2 text-slate-400 hover:text-slate-200 text-sm">
           取消
         </button>
       </div>

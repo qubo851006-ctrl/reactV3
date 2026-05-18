@@ -5,9 +5,10 @@ interface Props {
   user: AuthUser
   onLogout: () => void
   onOpenAdmin: () => void
+  onOpenLlmDashboard?: () => void
 }
 
-export default function UserMenu({ user, onLogout, onOpenAdmin }: Props) {
+export default function UserMenu({ user, onLogout, onOpenAdmin, onOpenLlmDashboard }: Props) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -51,13 +52,24 @@ export default function UserMenu({ user, onLogout, onOpenAdmin }: Props) {
 
           {/* 管理员专属菜单 */}
           {user.role === 'admin' && (
-            <button
-              onClick={() => { onOpenAdmin(); setOpen(false) }}
-              className="w-full text-left px-3 py-2.5 text-sm text-slate-300 hover:bg-slate-700/50 transition-colors flex items-center gap-2.5"
-            >
-              <span className="text-base">👥</span>
-              <span>用户管理</span>
-            </button>
+            <>
+              <button
+                onClick={() => { onOpenAdmin(); setOpen(false) }}
+                className="w-full text-left px-3 py-2.5 text-sm text-slate-300 hover:bg-slate-700/50 transition-colors flex items-center gap-2.5"
+              >
+                <span className="text-base">👥</span>
+                <span>用户管理</span>
+              </button>
+              {onOpenLlmDashboard && (
+                <button
+                  onClick={() => { onOpenLlmDashboard(); setOpen(false) }}
+                  className="w-full text-left px-3 py-2.5 text-sm text-slate-300 hover:bg-slate-700/50 transition-colors flex items-center gap-2.5"
+                >
+                  <span className="text-base">📊</span>
+                  <span>AI 质量仪表盘</span>
+                </button>
+              )}
+            </>
           )}
 
           {/* 退出 */}

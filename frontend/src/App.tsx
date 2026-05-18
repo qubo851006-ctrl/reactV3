@@ -20,6 +20,7 @@ import AuthGate from './components/AuthGate'
 import type { AuthUser } from './components/AuthGate'
 import UserMenu from './components/UserMenu'
 import UserAdminPanel from './components/UserAdminPanel'
+import AdminLLMDashboard from './components/AdminLLMDashboard'
 import { APP_TITLE } from './appMeta'
 import ModelSelect from './components/ModelSelect'
 import {
@@ -86,6 +87,7 @@ export default function App() {
   const [creatingSession, setCreatingSession] = useState(false)
   const [versionOpen, setVersionOpen] = useState(false)
   const [adminOpen, setAdminOpen] = useState(false)
+  const [llmDashboardOpen, setLlmDashboardOpen] = useState(false)
   const [sessions, setSessions] = useState<SessionMeta[]>([])
   const [currentSessionId, setCurrentSessionId] = useState<string>('')
   const currentSessionIdRef = useRef<string>('')
@@ -377,13 +379,21 @@ export default function App() {
               onChange={setVisionModel}
               disabled={sending}
             />
-            <UserMenu user={user} onLogout={onLogout} onOpenAdmin={() => setAdminOpen(true)} />
+            <UserMenu
+              user={user}
+              onLogout={onLogout}
+              onOpenAdmin={() => setAdminOpen(true)}
+              onOpenLlmDashboard={() => setLlmDashboardOpen(true)}
+            />
           </div>
         </div>
 
         <VersionPanel open={versionOpen} onClose={() => setVersionOpen(false)} />
         {user.role === 'admin' && (
-          <UserAdminPanel open={adminOpen} onClose={() => setAdminOpen(false)} currentUser={user} />
+          <>
+            <UserAdminPanel open={adminOpen} onClose={() => setAdminOpen(false)} currentUser={user} />
+            <AdminLLMDashboard open={llmDashboardOpen} onClose={() => setLlmDashboardOpen(false)} />
+          </>
         )}
 
         {/* Messages */}
