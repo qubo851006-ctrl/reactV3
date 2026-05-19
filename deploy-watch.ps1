@@ -23,7 +23,14 @@
 #   - 新增 npm install + npm run build (V3 需要前端 build 产物)
 #   - 健康检查
 # ─────────────────────────────────────────────────────────────────────
-$ErrorActionPreference = 'Stop'
+# Win PowerShell 5.1 quirk: with $ErrorActionPreference='Stop', the
+# moment a native command (git/pip/npm) writes ANY line to stderr —
+# even informational progress like git's "From https://github.com/…"
+# — PS wraps it as an ErrorRecord (NativeCommandError) and aborts the
+# script. We keep the global pref at 'Continue' here and check
+# $LASTEXITCODE explicitly after every external command to detect real
+# failures.
+$ErrorActionPreference = 'Continue'
 
 # ── 配置 ────────────────────────────────────────────────────────────
 $projectDir  = 'D:\prj\reactV3'
@@ -70,9 +77,17 @@ function Get-PidOnPort([int]$p) {
 Set-Location $projectDir
 
 # 1. 检测远端更新
-git fetch origin $branch 2>&1 | Out-Null
-$local  = git rev-parse HEAD
-$remote = git rev-parse "origin/$branch"
+#    `*>$null` drops every output stream — stdout AND stderr — so the
+#    chatty "From https://github.com/…" line that git fetch writes to
+#    stderr doesn't reach PS as an ErrorRecord. We still get the real
+#    exit code via $LASTEXITCODE.
+git fetch origin $branch *>$null
+if ($LASTEXITCODE -ne 0) {
+    Write-Log "git fetch 失败 (exit $LASTEXITCODE)"
+    exit 1
+}
+$local  = (git rev-parse HEAD).Trim()
+$remote = (git rev-parse "origin/$branch").Trim()
 if ($local -eq $remote) { exit 0 }   # 无更新，安静退出
 
 Acquire-Lock
@@ -86,15 +101,25 @@ try {
                       $changedFiles -contains 'frontend/package.json'
 
     # 3. 拉新代码
-    $pullOut = git pull origin $branch 2>&1
+    #    Capture both stdout and stderr via `cmd /c` to avoid PS 5.1's
+    #    NativeCommandError wrapping (git pull writes progress to stderr).
+    $pullOut = cmd /c "git pull origin $branch 2>&1"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Log "❌ git pull 失败 (exit $LASTEXITCODE)"
+        Write-Log "git pull output: $pullOut"
+        throw "git pull 失败"
+    }
     Write-Log "git pull: $pullOut"
 
     # 4. 后端依赖
     if ($needsPip) {
         Write-Log "requirements.txt 变化，重装 Python 依赖"
         Push-Location $backendDir
-        try { & pip install -r requirements.txt 2>&1 | Tee-Object -FilePath $logFile -Append | Out-Null }
-        finally { Pop-Location }
+        try {
+            $pipOut = cmd /c "pip install -r requirements.txt 2>&1"
+            Add-Content -Path $logFile -Value $pipOut -Encoding UTF8
+            if ($LASTEXITCODE -ne 0) { throw "pip install 失败 (exit $LASTEXITCODE)" }
+        } finally { Pop-Location }
     }
 
     # 5. 前端依赖 + build
@@ -102,10 +127,13 @@ try {
     try {
         if ($needsNpmInstall) {
             Write-Log "package-lock.json 变化，重装 npm 依赖"
-            & npm install --no-audit --no-fund 2>&1 | Tee-Object -FilePath $logFile -Append | Out-Null
+            $npmInstallOut = cmd /c "npm install --no-audit --no-fund 2>&1"
+            Add-Content -Path $logFile -Value $npmInstallOut -Encoding UTF8
+            if ($LASTEXITCODE -ne 0) { throw "npm install 失败 (exit $LASTEXITCODE)" }
         }
         Write-Log "npm run build"
-        & npm run build 2>&1 | Tee-Object -FilePath $logFile -Append | Out-Null
+        $buildOut = cmd /c "npm run build 2>&1"
+        Add-Content -Path $logFile -Value $buildOut -Encoding UTF8
         if ($LASTEXITCODE -ne 0) { throw "前端 build 失败 (exit $LASTEXITCODE)，回滚" }
     } finally { Pop-Location }
 
