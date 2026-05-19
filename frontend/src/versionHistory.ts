@@ -2,11 +2,51 @@ import type { VersionEntry } from './branding'
 
 export const VERSION_ENTRIES: VersionEntry[] = [
   {
-    version: 'v3.0.1',
+    version: 'v3.4.0',
     date: '2026-05-18',
     changes: [
-      { type: 'feat', text: 'AI 任务完成通知系统：5 大流程（案件台账 / 合规审查 / 授权请示 / 培训统计 / 三台账合并 / 审计分析）任务完成或失败时，右上角自动弹出气泡 + 浏览器标签页标题闪烁 + 系统通知（需用户授权）' },
-      { type: 'feat', text: '审计分析饼图复制：剪贴板写入支持超时熔断；剪贴板不可用或失败时自动改为下载 PNG 文件兜底' },
+      { type: 'feat', text: 'AI 任务完成通知系统：5 大流程（案件台账 / 合规审查 / 授权请示 / 培训统计 / 三台账合并 / 审计分析）任务完成或失败时，右上角自动弹出气泡 + 浏览器标签页标题闪烁 + 系统通知（需用户授权后即使浏览器在后台也能弹）' },
+      { type: 'feat', text: '审计分析饼图复制兜底：剪贴板写入支持超时熔断；剪贴板不可用或写入失败时自动改为下载 PNG 文件，按钮提示当前状态（复制中 / 已下载PNG / 复制失败）' },
+    ],
+  },
+  {
+    version: 'v3.3.0',
+    date: '2026-05-18',
+    changes: [
+      { type: 'feat', text: '按场景智能选模型：意图分类 / 合规审查 / 案件提取 / 文档起草等 19 个 LLM 场景自动匹配不同模型——简单任务（意图分类、文档分类）走更便宜的 DeepSeek-V3，复杂任务（案件字段抽取、合规审查）走更准的 Qwen 72B，长期 LLM 成本下降 30-50%' },
+      { type: 'feat', text: 'AI 质量仪表盘明细钻取：管理员菜单 → 📊 AI 质量仪表盘 → 点击任意场景行可查看最近 20 次 LLM 调用列表 → 再点击单条调用查看完整输入、AI 输出、用户最终采纳的版本（绿色高亮）' },
+      { type: 'feat', text: '新增运维脚本：tools/start_production.ps1（一键启动后端 + 前端）、tools/backup_pg.ps1（PG 数据库每日备份）、tools/archive_llm_traces.py（90 天前 LLM 追溯自动归档），可挂 Windows 任务计划程序无人值守' },
+      { type: 'perf', text: '大文件拆分：案件台账模块 ledger_helpers.py（960 行）抽出归档子模块；合规审查模块 compliance_ledger.py（815 行）抽出持久化子模块；审计前端 AuditFlow.tsx（621 行）抽出 TagGroup + PieSection 子组件——单文件维护成本显著降低' },
+      { type: 'fix', text: '聊天意图分类契约测试：补 10 个回归测试锁定意图集 / 反馈字段 / 路由选择行为，以后改提示词不会偷偷劣化分类准确率' },
+      { type: 'fix', text: '杂草清理：移除未使用的 streamlit 依赖；.env.example 补齐 8 个之前缺失的字段；日志统一格式 + 第三方库降噪' },
+    ],
+  },
+  {
+    version: 'v3.2.0',
+    date: '2026-05-17',
+    changes: [
+      { type: 'feat', text: '用户反馈学习闭环：5 大流程（案件台账 / 合规审查 / 授权请示 / 培训统计 / 审计分析）的"AI 提取 → 用户编辑 → 确认入库"全链路反馈数据自动回流到审计库——下一次同类任务自动注入历史采纳示例作为系统提示，AI 输出会逐步贴近用户的口味' },
+      { type: 'feat', text: '管理员 AI 质量仪表盘：右上角用户菜单 → 📊 AI 质量仪表盘——按场景统计总调用次数、反馈率、接受率、修改率、错误数、平均 tokens、平均延迟；接受率 ≥70% 绿色 / <50% 红色，高修改率场景标黄提醒' },
+      { type: 'feat', text: '"取消"按钮也算反馈：用户对 AI 提取结果点取消时也会记录"未接受"，避免被学习引擎当成成功示例污染未来调用' },
+      { type: 'feat', text: '前端反馈失败开放：feedback 上报用 Promise.allSettled，审计库挂掉也不影响业务流程' },
+    ],
+  },
+  {
+    version: 'v3.1.0',
+    date: '2026-05-15',
+    changes: [
+      { type: 'feat', text: 'Skill 插件架构：聊天意图分发由 if/elif 列表改为自动发现——新增技能只需在 backend/skills/implementations/ 放一个单文件 Skill 类，分类提示词、反馈追溯、视觉跳过等全部自动接管' },
+      { type: 'feat', text: 'LLM 调用全链路追溯：20 个业务场景（案件提取 / 合规审查 / 授权起草 / 培训分类 / 审计分类 / 意图分类 / 通用对话 / 图像 OCR）每次 LLM 调用自动落审计库，记录场景、模型、提示词版本、输入、输出、token 用量、耗时、错误' },
+      { type: 'feat', text: '审计库独立到 PostgreSQL：llm_traces 表迁移到 192.168.9.226 上的 PG 实例，与主 SQLite 业务库解耦——审计库挂掉不影响业务，业务库挂掉也不影响审计' },
+      { type: 'feat', text: '失败开放兜底：审计库连不上时自动降级为 NoopTracer，业务调用照常工作，仅追溯暂时失效' },
+    ],
+  },
+  {
+    version: 'v3.0.0',
+    date: '2026-05-15',
+    changes: [
+      { type: 'feat', text: 'V3 主版本启动：从 ReactV2 拷贝代码到独立仓库（github.com/qubo851006-ctrl/reactV3），全新 Git 历史，业务数据隔离重建' },
+      { type: 'feat', text: '所有 V2 既有功能保持工作不变（培训统计 / 案件台账 / 授权请示 / 三台账合并 / 审计分析 / 合规审查 / 企业查询 / 用户管理 / 多会话）' },
     ],
   },
   {
