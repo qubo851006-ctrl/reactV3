@@ -84,14 +84,20 @@ function Get-PidOnPort([int]$p) {
 # ── 主流程 ──────────────────────────────────────────────────────────
 Set-Location $projectDir
 
-# 1. 检测远端更新
-#    `*>$null` drops every output stream — stdout AND stderr — so the
-#    chatty "From https://github.com/…" line that git fetch writes to
-#    stderr doesn't reach PS as an ErrorRecord. We still get the real
-#    exit code via $LASTEXITCODE.
-git fetch origin $branch *>$null
-if ($LASTEXITCODE -ne 0) {
-    Write-Log "git fetch 失败 (exit $LASTEXITCODE)"
+# 1. 检测远端更新 — 重试 3 次,每次间隔 5 秒
+#    GitHub 偶尔返回 5xx / TCP RST,生产环境 deploy-watch 不能因为单次
+#    瞬时抖动就跳过本轮(更糟的是把"无更新"的错误状态记到日志)。
+$fetchOk = $false
+for ($attempt = 1; $attempt -le 3; $attempt++) {
+    git fetch origin $branch *>$null
+    if ($LASTEXITCODE -eq 0) { $fetchOk = $true; break }
+    if ($attempt -lt 3) {
+        Write-Log "git fetch 第 $attempt 次失败 (exit $LASTEXITCODE),5 秒后重试"
+        Start-Sleep -Seconds 5
+    }
+}
+if (-not $fetchOk) {
+    Write-Log "❌ git fetch 连续 3 次失败 (最后 exit $LASTEXITCODE)"
     exit 1
 }
 $local  = (git rev-parse HEAD).Trim()
