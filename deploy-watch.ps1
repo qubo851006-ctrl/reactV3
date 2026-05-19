@@ -32,6 +32,14 @@
 # failures.
 $ErrorActionPreference = 'Continue'
 
+# Tell PowerShell to decode the stdout of native commands as UTF-8.
+# Without this, vite/npm/git output that contains box-drawing
+# characters (│) or Unicode glyphs (✓ ⚠) gets mangled into mojibake
+# (鉁? 鈹?) when captured into a variable and written to the log.
+# Each cmd /c invocation below also runs `chcp 65001` so the cmd
+# subprocess actually emits UTF-8 in the first place.
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
+
 # ── 配置 ────────────────────────────────────────────────────────────
 $projectDir  = 'D:\prj\reactV3'
 $backendDir  = "$projectDir\backend"
@@ -103,7 +111,9 @@ try {
     # 3. 拉新代码
     #    Capture both stdout and stderr via `cmd /c` to avoid PS 5.1's
     #    NativeCommandError wrapping (git pull writes progress to stderr).
-    $pullOut = cmd /c "git pull origin $branch 2>&1"
+    #    `chcp 65001 >nul &` switches the cmd subprocess to UTF-8 so any
+    #    Chinese / Unicode output (Updating, branches, etc.) stays readable.
+    $pullOut = cmd /c "chcp 65001 >nul & git pull origin $branch 2>&1"
     if ($LASTEXITCODE -ne 0) {
         Write-Log "❌ git pull 失败 (exit $LASTEXITCODE)"
         Write-Log "git pull output: $pullOut"
@@ -116,7 +126,7 @@ try {
         Write-Log "requirements.txt 变化，重装 Python 依赖"
         Push-Location $backendDir
         try {
-            $pipOut = cmd /c "pip install -r requirements.txt 2>&1"
+            $pipOut = cmd /c "chcp 65001 >nul & pip install -r requirements.txt 2>&1"
             Add-Content -Path $logFile -Value $pipOut -Encoding UTF8
             if ($LASTEXITCODE -ne 0) { throw "pip install 失败 (exit $LASTEXITCODE)" }
         } finally { Pop-Location }
@@ -127,12 +137,12 @@ try {
     try {
         if ($needsNpmInstall) {
             Write-Log "package-lock.json 变化，重装 npm 依赖"
-            $npmInstallOut = cmd /c "npm install --no-audit --no-fund 2>&1"
+            $npmInstallOut = cmd /c "chcp 65001 >nul & npm install --no-audit --no-fund 2>&1"
             Add-Content -Path $logFile -Value $npmInstallOut -Encoding UTF8
             if ($LASTEXITCODE -ne 0) { throw "npm install 失败 (exit $LASTEXITCODE)" }
         }
         Write-Log "npm run build"
-        $buildOut = cmd /c "npm run build 2>&1"
+        $buildOut = cmd /c "chcp 65001 >nul & npm run build 2>&1"
         Add-Content -Path $logFile -Value $buildOut -Encoding UTF8
         if ($LASTEXITCODE -ne 0) { throw "前端 build 失败 (exit $LASTEXITCODE)，回滚" }
     } finally { Pop-Location }
