@@ -86,10 +86,15 @@ Set-Location $projectDir
 
 # 1. 检测远端更新 — 重试 3 次,每次间隔 5 秒
 #    GitHub 偶尔返回 5xx / TCP RST,生产环境 deploy-watch 不能因为单次
-#    瞬时抖动就跳过本轮(更糟的是把"无更新"的错误状态记到日志)。
+#    瞬时抖动就跳过本轮。
+#
+#    重要 — 用 `cmd /c "git fetch ... >nul 2>nul"` 包装,不要用 PS 原生的
+#    `git fetch ... *>$null`。在 schedtask 的 batch logon 上下文里,后者
+#    会让 git fetch 在凭据加载路径上行为异常(实测交互式 PS 跑 exit 0
+#    但同账号 schedtask 跑 exit 128)。cmd 隔离层完全规避此问题。
 $fetchOk = $false
 for ($attempt = 1; $attempt -le 3; $attempt++) {
-    git fetch origin $branch *>$null
+    cmd /c "git fetch origin $branch >nul 2>nul"
     if ($LASTEXITCODE -eq 0) { $fetchOk = $true; break }
     if ($attempt -lt 3) {
         Write-Log "git fetch 第 $attempt 次失败 (exit $LASTEXITCODE),5 秒后重试"
@@ -100,8 +105,9 @@ if (-not $fetchOk) {
     Write-Log "❌ git fetch 连续 3 次失败 (最后 exit $LASTEXITCODE)"
     exit 1
 }
-$local  = (git rev-parse HEAD).Trim()
-$remote = (git rev-parse "origin/$branch").Trim()
+# 同样用 cmd /c 跑 git rev-parse,保持一致性 + 拿 stdout 输出
+$local  = (cmd /c "git rev-parse HEAD").Trim()
+$remote = (cmd /c "git rev-parse origin/$branch").Trim()
 if ($local -eq $remote) { exit 0 }   # 无更新，安静退出
 
 Acquire-Lock
