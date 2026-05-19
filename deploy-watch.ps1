@@ -156,15 +156,30 @@ try {
     }
 
     # 7. 启新 uvicorn (production 模式，stdout/stderr 重定向)
-    $uvLog    = "$logDir\uvicorn-$(Get-Date -Format 'yyyyMMdd').log"
-    $uvLogErr = "$logDir\uvicorn-$(Get-Date -Format 'yyyyMMdd').err.log"
-    Start-Process -FilePath 'python' `
-        -ArgumentList @('-m', 'uvicorn', 'main:app', '--host', '0.0.0.0', '--port', $port, '--log-level', 'info') `
-        -WorkingDirectory $backendDir `
-        -RedirectStandardOutput $uvLog `
-        -RedirectStandardError $uvLogErr `
-        -WindowStyle Hidden
-    Write-Log "已启动新 uvicorn 在端口 $port，日志: $uvLog"
+    #    Use unique per-deploy log filenames (with hh-mm-ss + random
+    #    suffix) so two deploys on the same day can't race for the same
+    #    file handle. The previous yyyyMMdd-only naming caused
+    #    Start-Process to silently fail when the freshly-stopped uvicorn
+    #    hadn't released its log handle yet — script exited the try
+    #    block without writing "已启动新 uvicorn".
+    $uvStamp  = Get-Date -Format 'yyyyMMdd-HHmmss'
+    $uvSuffix = [guid]::NewGuid().ToString('N').Substring(0, 6)
+    $uvLog    = "$logDir\uvicorn-$uvStamp-$uvSuffix.log"
+    $uvLogErr = "$logDir\uvicorn-$uvStamp-$uvSuffix.err.log"
+    try {
+        $newProc = Start-Process -FilePath 'python' `
+            -ArgumentList @('-m', 'uvicorn', 'main:app', '--host', '0.0.0.0', '--port', $port, '--log-level', 'info') `
+            -WorkingDirectory $backendDir `
+            -RedirectStandardOutput $uvLog `
+            -RedirectStandardError $uvLogErr `
+            -WindowStyle Hidden `
+            -PassThru `
+            -ErrorAction Stop
+        Write-Log "已启动新 uvicorn (PID $($newProc.Id)) 在端口 $port，日志: $uvLog"
+    } catch {
+        Write-Log "❌ Start-Process 启动 uvicorn 失败: $_"
+        throw
+    }
 
     # 8. 健康检查 (最多等 30 秒)
     Start-Sleep -Seconds 3
@@ -180,6 +195,13 @@ try {
     } else {
         Write-Log "❌ 部署失败：30 秒内 /api/health 未响应。请检查 $uvLog 和 $uvLogErr"
     }
+} catch {
+    # Without this catch, any uncaught throw inside the deploy steps
+    # silently aborts the script — Release-Lock runs (good), but no
+    # log line tells the operator what broke. With it, every failure
+    # leaves a "❌ 部署失败: <message>" in the log.
+    Write-Log "❌ 部署中断: $_"
+    Write-Log "   stack trace: $($_.ScriptStackTrace)"
 } finally {
     Release-Lock
 }
