@@ -44,7 +44,10 @@ const DEFAULT_BADGE: Record<NoticeType, string> = {
 }
 
 function getInitialNotificationPermission(): NotificationPermission | 'unsupported' {
-  if (typeof window !== 'undefined' && 'Notification' in window) {
+  // Use a truthy check (not `'Notification' in window`) so a browser
+  // extension or polyfill that defines window.Notification = undefined
+  // can't trick us into reading .permission on undefined.
+  if (typeof window !== 'undefined' && window.Notification != null) {
     return window.Notification.permission
   }
   return 'unsupported'
@@ -96,7 +99,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const showSystemNotification = useCallback((input: NoticeInput) => {
-    if (typeof window === 'undefined' || !('Notification' in window)) return
+    if (typeof window === 'undefined' || window.Notification == null) return
     if (window.Notification.permission !== 'granted') return
     new window.Notification(input.title, {
       body: input.message || DEFAULT_BADGE[input.type],
@@ -106,7 +109,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const requestSystemPermission = useCallback(async () => {
-    if (typeof window === 'undefined' || !('Notification' in window)) {
+    if (typeof window === 'undefined' || window.Notification == null) {
       setNotificationPermission('unsupported')
       return
     }
