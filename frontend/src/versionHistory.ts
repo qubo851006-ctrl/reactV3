@@ -2,6 +2,30 @@ import type { VersionEntry } from './branding'
 
 export const VERSION_ENTRIES: VersionEntry[] = [
   {
+    version: 'v3.5.1',
+    date: '2026-05-19',
+    changes: [
+      { type: 'fix', text: '合规审查台账提取丢字段修复：之前同一份 PDF 在 V3 提取出来只有会签单位行，丢掉了首席合规官 / 合规管理牵头部门 / 承办单位三行核心审批角色。根因是 P1-2 反馈学习的 few-shot 自动注入在合规这种 multi-step 流程（抽取 → 复核 → 修正 → 归一化）里反向引导 LLM，让它按"用户最终采纳的扁平 review_rows"格式输出而丢掉中间结构。现已在 compliance_extract / compliance_review 两个场景显式关闭 few-shot 注入；其他单步抽取场景（案件 / 培训 / 授权）继续受益于反馈学习不变。' },
+    ],
+  },
+  {
+    version: 'v3.5.0',
+    date: '2026-05-19',
+    changes: [
+      { type: 'feat', text: '生产部署管线：服务器侧 deploy-watch.ps1 每 5 分钟检查 GitHub，发现新 commit 自动 git pull → npm run build → 优雅重启 uvicorn → /api/health 验证。失败时日志写完整错误 + stack trace，不再静默吞错。配套 tools/start_production.ps1 / tools/backup_pg.ps1 / tools/archive_llm_traces.py 和 docs/DEPLOY-SERVER.md 首次部署手册。' },
+      { type: 'feat', text: '服务器手动启停：项目根目录新增 start.bat / stop.bat 双击即用 — start.bat 后台启动 production uvicorn + 健康检查 + 日志重定向到 logs/uvicorn-时间戳.log；stop.bat 按端口 8001 精确停止，不影响 V2 在 8000 上的服务。' },
+      { type: 'fix', text: '部署稳定性强化（共 7 处底层修复）：Win PowerShell 5.1 兼容（.ps1 加 UTF-8 BOM 避免中文注释被 GBK 误解码 / 外部命令 stderr 重定向避开 NativeCommandError 包装 / cmd 子进程加 chcp 65001 让 vite 输出保留 ✓ │ 字符）；schedtask jkszb 用户上下文里 git fetch 走 cmd /c 包装绕过 batch logon 凭据问题；Start-Process 启动 uvicorn 失败时显式捕获 + 日志带 stack trace；唯一日志文件名防同日两次部署的文件锁冲突；git fetch 加 3 次重试 5 秒间隔扛 GitHub 偶发 5xx。' },
+    ],
+  },
+  {
+    version: 'v3.4.1',
+    date: '2026-05-19',
+    changes: [
+      { type: 'feat', text: '测试套大幅扩容：后端 245 → 264 个测试（新增 22 个）覆盖 API 端到端集成（FastAPI TestClient 跑全链路）+ LLM trace 访问控制安全（管理员读 / 用户只能改自己的 feedback）；前端引入 Vitest + @testing-library/react 测试栈，首批 17 个测试覆盖 api.ts 的 submitLlmFeedback 容错行为和 NotificationProvider 渲染契约；tools/smoke_test_pg.py 提供针对真实 PostgreSQL 的端到端烟雾测试（6 步全过即证明审计链路在生产 DB 上工作）。' },
+      { type: 'fix', text: '通知系统加固：Notification API 检测从 `\'Notification\' in window` 改为 `window.Notification != null` —— 防止某些浏览器扩展 / polyfill 把 Notification 设为 undefined 后访问 .permission 触发崩溃。三处检查（初始权限 / 显示通知 / 申请权限）统一收口，正常浏览器行为不变。' },
+    ],
+  },
+  {
     version: 'v3.4.0',
     date: '2026-05-18',
     changes: [
