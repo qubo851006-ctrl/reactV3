@@ -16,6 +16,13 @@ import react from '@vitejs/plugin-react'
  */
 export default defineConfig({
   plugins: [react()],
+  // Enable the React 17+ automatic JSX runtime so test files don't need
+  // `import React from 'react'`. Without this Vitest falls back to the
+  // classic transform, which expects React in scope and fails with
+  // "React is not defined" the moment a .tsx test renders JSX.
+  esbuild: {
+    jsx: 'automatic',
+  },
   test: {
     environment: 'jsdom',
     globals: true,
