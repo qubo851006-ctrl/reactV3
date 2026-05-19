@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Daily PostgreSQL backup for the reactv3 audit DB.
 

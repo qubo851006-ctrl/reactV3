@@ -1,4 +1,4 @@
-# ─────────────────────────────────────────────────────────────────
+﻿# ─────────────────────────────────────────────────────────────────
 # V3 stopper — finds whoever's holding port 8001 and kills them.
 #
 # Won't touch V2 on port 8000, since we look up by port not by

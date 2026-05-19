@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Start the V3 backend + frontend in production mode (no --reload).
 

@@ -1,4 +1,4 @@
-# ─────────────────────────────────────────────────────────────────
+﻿# ─────────────────────────────────────────────────────────────────
 # V3 production-mode launcher
 #
 # Called from start.bat (double-clickable) but works standalone too:
