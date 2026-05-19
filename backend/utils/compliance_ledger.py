@@ -650,6 +650,18 @@ def extract_compliance_item(text: str, responsible_persons: dict[str, str] | Non
     persons = responsible_persons or load_responsible_persons()
     client = get_llm_client()
 
+    # Compliance is a multi-step pipeline (extract → review → fix → normalize).
+    # inject_few_shot=False here on purpose: the few-shot examples we'd
+    # inject are normalized review_rows output (post-build_review_rows),
+    # which is structurally different from the 5-tuple schema this prompt
+    # asks for (undertaking / compliance / chief / approval_entries /
+    # countersign). When the example shape doesn't match the prompt's
+    # requested shape, the LLM tries to bridge the two and drops fields
+    # (observed in production 2026-05-19: chief / compliance / undertaking
+    # rows all silently disappeared from the final ledger, only countersign
+    # entries survived). Few-shot is appropriate for SINGLE-step extraction
+    # where the user's edited_to is the same schema as the prompt asks for —
+    # not for multi-step pipelines like this one.
     extract_response = traced_complete(
         client,
         scene="compliance_extract",
@@ -658,6 +670,7 @@ def extract_compliance_item(text: str, responsible_persons: dict[str, str] | Non
         messages=[{"role": "user", "content": _build_extract_prompt(text, persons)}],
         temperature=0,
         max_tokens=3000,
+        inject_few_shot=False,
     )
     extract_raw = extract_response.choices[0].message.content or ""
     extracted = _parse_json_object(extract_raw)
@@ -671,6 +684,7 @@ def extract_compliance_item(text: str, responsible_persons: dict[str, str] | Non
             messages=[{"role": "user", "content": _build_review_prompt(text, persons, extracted)}],
             temperature=0,
             max_tokens=3000,
+            inject_few_shot=False,
         )
         reviewed = _parse_json_object(review_response.choices[0].message.content or "")
     except Exception as exc:
