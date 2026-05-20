@@ -7,9 +7,10 @@ interface Props {
   onLogout: () => void
   onOpenAdmin: () => void
   onOpenLlmDashboard?: () => void
+  onOpenDingTalkAdmin?: () => void
 }
 
-export default function UserMenu({ user, onLogout, onOpenAdmin, onOpenLlmDashboard }: Props) {
+export default function UserMenu({ user, onLogout, onOpenAdmin, onOpenLlmDashboard, onOpenDingTalkAdmin }: Props) {
   const { notifyError, notifySuccess, sendTestNotification } = useNotifier()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -88,13 +89,23 @@ export default function UserMenu({ user, onLogout, onOpenAdmin, onOpenLlmDashboa
                   <span>AI 质量仪表盘</span>
                 </button>
               )}
-              <button
-                onClick={() => { void sendDingtalkTestNotification(); setOpen(false) }}
-                className="w-full text-left px-3 py-2.5 text-sm text-slate-300 hover:bg-slate-700/50 transition-colors flex items-center gap-2.5"
-              >
-                <span className="text-base">钉</span>
-                <span>测试钉钉通知</span>
-              </button>
+              {onOpenDingTalkAdmin ? (
+                <button
+                  onClick={() => { onOpenDingTalkAdmin(); setOpen(false) }}
+                  className="w-full text-left px-3 py-2.5 text-sm text-slate-300 hover:bg-slate-700/50 transition-colors flex items-center gap-2.5"
+                >
+                  <span className="text-base">钉</span>
+                  <span>钉钉管理</span>
+                </button>
+              ) : (
+                <button
+                  onClick={() => { void sendDingtalkTestNotification(); setOpen(false) }}
+                  className="w-full text-left px-3 py-2.5 text-sm text-slate-300 hover:bg-slate-700/50 transition-colors flex items-center gap-2.5"
+                >
+                  <span className="text-base">钉</span>
+                  <span>测试钉钉通知</span>
+                </button>
+              )}
             </>
           )}
 

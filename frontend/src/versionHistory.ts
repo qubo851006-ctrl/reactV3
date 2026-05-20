@@ -2,6 +2,14 @@ import type { VersionEntry } from './branding'
 
 export const VERSION_ENTRIES: VersionEntry[] = [
   {
+    version: 'v3.6.1',
+    date: '2026-05-20',
+    changes: [
+      { type: 'feat', text: '管理员菜单新增“钉钉管理”面板：集中测试群机器人通知、企业应用凭证、个人工作通知，并可一键同步通讯录。' },
+      { type: 'feat', text: '钉钉管理面板展示最近同步日志和通知日志，方便排查消息是否发送、同步是否成功、钉钉返回码或跳过原因。' },
+    ],
+  },
+  {
     version: 'v3.6.0',
     date: '2026-05-20',
     changes: [
