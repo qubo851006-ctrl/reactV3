@@ -2,6 +2,14 @@ import type { VersionEntry } from './branding'
 
 export const VERSION_ENTRIES: VersionEntry[] = [
   {
+    version: 'v3.5.2',
+    date: '2026-05-20',
+    changes: [
+      { type: 'feat', text: 'AI 完成提醒升级:Windows 系统通知改为"停在通知中心不自动消失"(requireInteraction=true),AI 长任务跑完即使你切到别的标签或窗口,回来在 Windows 通知中心还能看到。保留无声(silent=true)不打扰办公环境。' },
+      { type: 'feat', text: '用户菜单新增「🔔 测试系统通知」入口(所有用户可见):一键验证 Windows 通知功能是否工作 + 自动处理浏览器三种权限状态(未询问→弹窗申请、已禁用→提示去地址栏锁形图标设置、已授权→立即发测试通知)。' },
+    ],
+  },
+  {
     version: 'v3.5.1',
     date: '2026-05-19',
     changes: [

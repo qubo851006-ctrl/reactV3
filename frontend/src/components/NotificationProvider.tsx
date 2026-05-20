@@ -103,18 +103,24 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     if (window.Notification.permission !== 'granted') return
     new window.Notification(input.title, {
       body: input.message || DEFAULT_BADGE[input.type],
+      // silent=true: 不出声(用户偏好,办公环境不打扰别人)
       silent: true,
+      // requireInteraction=true: 通知停在 Windows 通知中心,不会自动消失。
+      // 用户必须主动点 dismiss 才会消失 — 跟 Claude Code / VS Code 风格一致。
+      // 适合 AI 长任务完成的场景:用户可能切到别的标签做事,回来后还能看到。
+      requireInteraction: true,
       tag: `reactv3-${input.type}`,
     })
   }, [])
 
-  const requestSystemPermission = useCallback(async () => {
+  const requestSystemPermission = useCallback(async (): Promise<NotificationPermission | 'unsupported'> => {
     if (typeof window === 'undefined' || window.Notification == null) {
       setNotificationPermission('unsupported')
-      return
+      return 'unsupported'
     }
     const permission = await window.Notification.requestPermission()
     setNotificationPermission(permission)
+    return permission
   }, [])
 
   const notify = useCallback((input: NoticeInput) => {
@@ -126,11 +132,56 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     window.setTimeout(() => dismiss(id), 6500)
   }, [dismiss, flashTitle, showSystemNotification])
 
+  const sendTestNotification = useCallback(async (): Promise<void> => {
+    // 1. Browser doesn't support Notification API at all (rare — old browsers).
+    if (typeof window === 'undefined' || window.Notification == null) {
+      notify({
+        type: 'error',
+        title: '系统通知不可用',
+        message: '当前浏览器不支持 Notification API,请用 Chrome / Edge / Firefox 最新版',
+      })
+      return
+    }
+
+    // 2. User previously denied — can't ask again, point them to settings.
+    if (window.Notification.permission === 'denied') {
+      notify({
+        type: 'error',
+        title: '系统通知已被禁用',
+        message: '请在浏览器地址栏左侧锁形图标 → 网站设置 → 通知,改为"允许"',
+      })
+      return
+    }
+
+    // 3. Never asked yet — request now. If user denies in the popup,
+    //    requestPermission returns 'denied'.
+    if (window.Notification.permission === 'default') {
+      const result = await requestSystemPermission()
+      if (result !== 'granted') {
+        notify({
+          type: 'error',
+          title: '未授予通知权限',
+          message: '系统通知功能需要浏览器授权才能工作',
+        })
+        return
+      }
+    }
+
+    // 4. Permission granted — fire BOTH an in-app toast AND a Windows
+    //    system notification so the user can confirm each independently.
+    notify({
+      type: 'success',
+      title: '测试通知 — 系统通知工作正常',
+      message: '如果你看到 Windows 通知中心也有一条,说明完整链路通了。AI 任务完成时会用同样方式提醒。',
+    })
+  }, [notify])
+
   const value = useMemo<NotificationContextValue>(() => ({
     notify,
     notifySuccess: (title, message) => notify({ type: 'success', title, message }),
     notifyError: (title, message) => notify({ type: 'error', title, message }),
-  }), [notify])
+    sendTestNotification,
+  }), [notify, sendTestNotification])
 
   return (
     <NotificationContext.Provider value={value}>

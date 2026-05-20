@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { AuthUser } from './AuthGate'
+import { useNotifier } from './NotificationContext'
 
 interface Props {
   user: AuthUser
@@ -9,6 +10,7 @@ interface Props {
 }
 
 export default function UserMenu({ user, onLogout, onOpenAdmin, onOpenLlmDashboard }: Props) {
+  const { sendTestNotification } = useNotifier()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -71,6 +73,16 @@ export default function UserMenu({ user, onLogout, onOpenAdmin, onOpenLlmDashboa
               )}
             </>
           )}
+
+          {/* 测试系统通知 — 所有用户都能看到 */}
+          <button
+            onClick={() => { void sendTestNotification(); setOpen(false) }}
+            className="w-full text-left px-3 py-2.5 text-sm text-slate-300 hover:bg-slate-700/50 transition-colors flex items-center gap-2.5 border-t border-slate-700/50"
+            title="点击测试 Windows 系统通知是否工作"
+          >
+            <span className="text-base">🔔</span>
+            <span>测试系统通知</span>
+          </button>
 
           {/* 退出 */}
           <button
