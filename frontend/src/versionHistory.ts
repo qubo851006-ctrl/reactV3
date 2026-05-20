@@ -2,6 +2,15 @@ import type { VersionEntry } from './branding'
 
 export const VERSION_ENTRIES: VersionEntry[] = [
   {
+    version: 'v3.5.3',
+    date: '2026-05-20',
+    changes: [
+      { type: 'feat', text: '内网 HTTPS 部署:服务器侧用 Caddy 监听 8443 反代到 uvicorn:8001,证书由 mkcert 本地 CA 签发(SAN 覆盖 IP / localhost / 主机名,10 年有效),客户端机器装一次 mkcert 根 CA 后所有内网 V3 访问无警告。访问地址从 http://192.168.9.226:8001 升级为 https://192.168.9.226:8443。' },
+      { type: 'fix', text: '解锁 Web Notification API:Chromium 规定 Notification / Clipboard 等"安全上下文专属 API"在内网 HTTP 地址下被整个禁用(站点设置里通知一栏灰色不可改),用户点 🔔 测试系统通知无任何反应。HTTPS 改造完成后 Notification.permission 可以正常 default → granted,Windows 系统通知正常弹出。' },
+      { type: 'feat', text: '配套交付:Caddyfile(相对路径,跨机通用)+ caddy-start.ps1(UTF-8 BOM + 唯一日志名 + Already-running 检测)+ start-https.bat / stop-https.bat 双击启停 + docs/DEPLOY-HTTPS.md 完整运维指南(架构图、服务器搭建、客户端配置、故障排查、与 V2 共存方案)。.gitignore 加 logs/ 排除运行日志(*.pem / *.key 之前已排除)。' },
+    ],
+  },
+  {
     version: 'v3.5.2',
     date: '2026-05-20',
     changes: [

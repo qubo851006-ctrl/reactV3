@@ -30,6 +30,17 @@
 
 ---
 
+## 2026-05-20 更新（v3.5.3）
+
+- **内网 HTTPS 部署**：服务器侧用 [Caddy](https://caddyserver.com/) 监听 8443 反代到 uvicorn:8001，证书由 [mkcert](https://github.com/FiloSottile/mkcert) 本地 CA 签发（SAN 覆盖 `192.168.9.226` / `localhost` / 主机名，10 年有效），客户端机器装一次 mkcert 根 CA 后所有内网 V3 访问无警告。
+- **访问地址变更**：`http://192.168.9.226:8001` → **`https://192.168.9.226:8443`**（旧地址仍可用，但浏览器侧 Notification / Clipboard 等 API 不工作）。
+- **解锁 Web Notification API**：Chromium 规定 Notification / Clipboard / Service Worker 等"安全上下文专属"API 在内网 HTTP 地址下被整个禁用（站点权限里"通知"一栏灰色不可改），用户点 🔔 测试系统通知无任何反应；HTTPS 改造完成后 `Notification.permission` 可正常 `default → granted`，Windows 系统通知正常弹出。
+- **配套交付**：仓库根新增 `Caddyfile`（相对路径，跨机通用）+ `caddy-start.ps1`（UTF-8 BOM + 唯一日志名 + Already-running 检测）+ `start-https.bat` / `stop-https.bat` 双击启停 + [`docs/DEPLOY-HTTPS.md`](docs/DEPLOY-HTTPS.md) 完整运维指南（架构图、服务器搭建、客户端 mkcert 根 CA 分发、故障排查、与 V2 共存方案）。
+- **每位同事一次性配置**：管理员把服务器 `rootCA.pem` 文件分发（共享盘 / 微信 / U 盘都行），客户端管理员 PS 一行命令导入即可：`Import-Certificate -FilePath rootCA.pem -CertStoreLocation Cert:\LocalMachine\Root`。
+- 与现有 V2 / deploy-watch 完全隔离：V2 在 8000，V3 uvicorn 在 8001，Caddy 在 8443，三者互不影响；deploy-watch 仍只管前端 build + uvicorn 重启，不动 Caddy。
+
+---
+
 ## 2026-05-20 更新（v3.5.2）
 
 - AI 完成提醒升级：Windows 系统通知改为"停在通知中心不自动消失"（`requireInteraction=true`），AI 长任务跑完即使你切到别的标签或窗口，回来在 Windows 通知中心还能看到。保留无声（`silent=true`）不打扰办公环境。

@@ -31,6 +31,10 @@ frontend/.vite/
 # ── Test artifacts ───────────────────────────────────────────────
 backend/tests/tmp/
 
+# ── Runtime logs ─────────────────────────────────────────────────
+logs/
+*.err.log
+
 # ── User data (uploads, generated files, business data) ──────────
 data/
 backend/培训档案/

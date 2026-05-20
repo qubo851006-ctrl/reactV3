@@ -1,0 +1,32 @@
+# V3 HTTPS 反向代理配置
+# 监听 8443,反代到本地 uvicorn:8001
+# 证书由 mkcert 在服务器本地签发(不进 git,见 .gitignore *.pem *.key)
+#
+# 启动:caddy run --config Caddyfile  (工作目录必须是 D:\prj\reactV3)
+# 路径用相对写法,跨机器/路径迁移友好
+
+:8443 {
+    tls ./certs/192.168.9.226+3.pem ./certs/192.168.9.226+3-key.pem
+
+    # 反代到 uvicorn,保留客户端真实 IP 和 HTTPS 协议标识
+    reverse_proxy 127.0.0.1:8001 {
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto https
+        header_up Host {host}
+    }
+
+    # 访问日志(JSON 格式,10MB 一卷,保留最近 5 卷)
+    log {
+        output file ./logs/caddy-access.log {
+            roll_size 10mb
+            roll_keep 5
+        }
+        format console
+    }
+
+    # 请求体上限提到 100MB,适配 PDF/Excel 上传
+    request_body {
+        max_size 100MB
+    }
+}
