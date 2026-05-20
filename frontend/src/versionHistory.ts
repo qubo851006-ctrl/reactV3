@@ -2,6 +2,15 @@ import type { VersionEntry } from './branding'
 
 export const VERSION_ENTRIES: VersionEntry[] = [
   {
+    version: 'v3.6.2',
+    date: '2026-05-20',
+    changes: [
+      { type: 'feat', text: '主业务数据库支持 PostgreSQL：新增 APP_DATABASE_URL，用户、会话、审计日志、钉钉通知日志和同步日志可切换到 PG；未配置时继续回退 data/auth.db SQLite，保持本地开发体验不变。' },
+      { type: 'feat', text: '新增 tools/check_main_db.py 主库健康检查脚本，可直接查看当前主库 backend、连接 URL（隐藏密码）和核心表是否就绪，方便服务器迁移和运维排查。' },
+      { type: 'feat', text: '新增 tools/migrate_main_sqlite_to_pg.py 迁移脚本，支持先 dry-run 查看 SQLite 行数，再显式 --execute --force 将现有 auth.db 主业务数据导入 PostgreSQL。' },
+    ],
+  },
+  {
     version: 'v3.6.1',
     date: '2026-05-20',
     changes: [

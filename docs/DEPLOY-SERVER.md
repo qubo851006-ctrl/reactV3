@@ -29,6 +29,33 @@ Select-String -Path D:\prj\reactV3\backend\.env -Pattern '^(AIRCHINA_API_KEY|DAT
 # 应该看到 4 行非空值
 ```
 
+主业务库推荐配置 PostgreSQL：
+
+```env
+APP_DATABASE_URL=postgresql://<user>:<password>@<host>:5432/reactv3
+```
+
+`APP_DATABASE_URL` 只控制 V3 主业务库（用户、会话、审计日志、钉钉通知日志、同步日志）。若不配置，后端会回退到 `data/auth.db` SQLite，适合本地开发。
+
+从现有 SQLite 迁移到 PostgreSQL 时，先 dry-run：
+
+```powershell
+python tools\migrate_main_sqlite_to_pg.py
+```
+
+确认行数无误、且已备份目标库后执行：
+
+```powershell
+python tools\migrate_main_sqlite_to_pg.py --execute --force
+python tools\check_main_db.py
+```
+
+LLM 追溯库可继续单独配置：
+
+```env
+LLM_AUDIT_DATABASE_URL=postgresql://<user>:<password>@<host>:5432/reactv3_audit
+```
+
 ### 3. 后端 Python 依赖（如果之前没装过）
 
 ```powershell
@@ -110,6 +137,7 @@ schtasks /create /tn "reactV3 LLM trace archive" `
 | 服务在跑 | `Get-NetTCPConnection -LocalPort 8001 -State Listen` | 有一个 listener |
 | 健康检查 | `curl http://127.0.0.1:8001/api/health` | `{"status":"ok"}` |
 | 前端可达 | 浏览器 `http://server:8001/` | 看到法度云图登录页 |
+| 主业务库 | `python tools\check_main_db.py` | 显示 main DB backend 和基础表 |
 | PG 写入工作 | `python D:\prj\reactV3\tools\smoke_test_pg.py` | 6 步全 PASS |
 | 自动部署日志 | `Get-Content D:\prj\reactV3\logs\deploy-watch.log -Tail 20` | 有 "检测到新版本" / "✅ 部署成功" 记录 |
 | 与 V2 共存 | `Get-NetTCPConnection -LocalPort 8000 -State Listen` | V2 仍在 8000，不受影响 |

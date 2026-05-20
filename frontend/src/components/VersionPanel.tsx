@@ -166,6 +166,9 @@ const FEATURES = [
       '后端输出 perf.step / perf.total 性能日志，可用于判断慢点来自模型、OCR、PDF 解析还是文件写入',
       '服务器端可通过 Windows 任务计划程序定时检测 GitHub master 分支更新，自动拉取最新代码、构建前端并重启后端',
       '生产环境请在服务器本地保留 .env 和 data 目录，不要将业务数据或密钥提交到 GitHub',
+      '服务器可通过 APP_DATABASE_URL 将主业务库切换到 PostgreSQL；未配置时本地开发继续使用 data/auth.db SQLite',
+      'tools/check_main_db.py 可检查当前主业务库连接和 users、sessions、通知日志、钉钉同步日志等核心表是否就绪',
+      'tools/migrate_main_sqlite_to_pg.py 可将现有 data/auth.db 主业务数据迁移到 PostgreSQL，默认 dry-run，显式执行才写入',
     ],
   },
 ]

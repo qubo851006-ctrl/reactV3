@@ -1,5 +1,7 @@
+import os
 from pathlib import Path
 from sqlalchemy import create_engine, event, inspect, text
+from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 
 _DATA_DIR = Path(__file__).parent.parent / "data"
@@ -12,11 +14,47 @@ def _configure_sqlite(dbapi_conn, _connection_record):
     dbapi_conn.execute("PRAGMA busy_timeout=5000")
 
 
-engine = create_engine(
-    f"sqlite:///{_DATA_DIR / 'auth.db'}",
-    connect_args={"check_same_thread": False},
-)
-event.listen(engine, "connect", _configure_sqlite)
+def get_database_url() -> str:
+    """Main application database URL.
+
+    APP_DATABASE_URL is preferred so the main business DB can be configured
+    independently from LLM_AUDIT_DATABASE_URL. DATABASE_URL remains a fallback
+    for older deployments. If neither is set, keep the existing SQLite file.
+    """
+    return (
+        os.getenv("APP_DATABASE_URL")
+        or os.getenv("DATABASE_URL")
+        or f"sqlite:///{_DATA_DIR / 'auth.db'}"
+    )
+
+
+def _normalize_database_url(url: str) -> str:
+    if url.startswith("postgresql://"):
+        return "postgresql+psycopg://" + url[len("postgresql://"):]
+    return url
+
+
+def _is_sqlite(engine: Engine) -> bool:
+    return engine.url.get_backend_name() == "sqlite"
+
+
+def build_engine(url: str | None = None) -> Engine:
+    raw_url = url or get_database_url()
+    normalized = _normalize_database_url(raw_url)
+    parsed = make_url(normalized)
+    if parsed.get_backend_name() == "sqlite":
+        db_engine = create_engine(normalized, connect_args={"check_same_thread": False})
+        event.listen(db_engine, "connect", _configure_sqlite)
+        return db_engine
+    return create_engine(
+        normalized,
+        pool_pre_ping=True,
+        pool_size=int(os.getenv("APP_DB_POOL_SIZE", "5")),
+        max_overflow=int(os.getenv("APP_DB_MAX_OVERFLOW", "5")),
+    )
+
+
+engine = build_engine()
 SessionLocal = sessionmaker(bind=engine)
 
 
@@ -35,7 +73,8 @@ def get_db():
 def init_db():
     import models  # noqa: F401 — register core models before create_all
     Base.metadata.create_all(engine)
-    _migrate_auth_schema()
+    if _is_sqlite(engine):
+        _migrate_auth_schema()
     _seed()
     # llm_traces lives in a separate database (PostgreSQL). Initialise it
     # but don't let its failure break app startup — tracing degrades to
