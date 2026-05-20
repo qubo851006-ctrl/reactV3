@@ -10,6 +10,13 @@ ROOT = Path(__file__).resolve().parents[1]
 BACKEND = ROOT / "backend"
 sys.path.insert(0, str(BACKEND))
 
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(BACKEND / ".env", override=True)
+except Exception:
+    pass
+
 TABLE_ORDER = [
     "users",
     "sessions",

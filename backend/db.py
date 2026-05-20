@@ -38,6 +38,10 @@ def _is_sqlite(engine: Engine) -> bool:
     return engine.url.get_backend_name() == "sqlite"
 
 
+def _is_postgresql(engine: Engine) -> bool:
+    return engine.url.get_backend_name() == "postgresql"
+
+
 def build_engine(url: str | None = None) -> Engine:
     raw_url = url or get_database_url()
     normalized = _normalize_database_url(raw_url)
@@ -72,6 +76,8 @@ def get_db():
 
 def init_db():
     import models  # noqa: F401 — register core models before create_all
+    if _is_postgresql(engine):
+        _drop_orphan_pg_sequences()
     Base.metadata.create_all(engine)
     if _is_sqlite(engine):
         _migrate_auth_schema()
@@ -110,6 +116,29 @@ def _migrate_auth_schema():
             conn.execute(text("ALTER TABLE users ADD COLUMN dingtalk_active BOOLEAN"))
         if "dingtalk_synced_at" not in columns:
             conn.execute(text("ALTER TABLE users ADD COLUMN dingtalk_synced_at DATETIME"))
+
+
+def _drop_orphan_pg_sequences():
+    """Clean up sequences left behind by an interrupted first create_all().
+
+    PostgreSQL can keep `*_id_seq` after a failed CREATE TABLE transaction in
+    some deployment attempts. We only drop a known sequence when its owning
+    table does not exist, so existing data is never touched.
+    """
+    tables = [
+        "users",
+        "sessions",
+        "audit_logs",
+        "notification_logs",
+        "dingtalk_sync_logs",
+    ]
+    with engine.begin() as conn:
+        for table_name in tables:
+            table_exists = conn.execute(text("SELECT to_regclass(:name)"), {"name": table_name}).scalar()
+            seq_name = f"{table_name}_id_seq"
+            seq_exists = conn.execute(text("SELECT to_regclass(:name)"), {"name": seq_name}).scalar()
+            if not table_exists and seq_exists:
+                conn.execute(text(f'DROP SEQUENCE IF EXISTS "{seq_name}"'))
 
 
 def _seed():
