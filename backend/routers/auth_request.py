@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session as DBSession
 from auth_utils import get_current_user
 from audit_log import write_log
 from db import get_db
+from integrations.dingtalk import notify_task_failure, notify_task_success
 from models import User
 from routers.chat import load_history, save_history
 from config import AUTH_LEDGER_PATH
@@ -119,7 +120,17 @@ async def process_auth_request(
         finally:
             trace.finish()
 
-    result = await asyncio.to_thread(_run_blocking)
+    try:
+        result = await asyncio.to_thread(_run_blocking)
+    except Exception as e:
+        notify_task_failure(
+            task="授权请示识别",
+            summary=str(e)[:160],
+            user=user,
+            session_id=session_id,
+            stage="AI 生成",
+        )
+        raise
     info = result["info"]
     auth_content = result["auth_content"]
     project_name = result["project_name"]
@@ -129,6 +140,13 @@ async def process_auth_request(
     history = await asyncio.to_thread(load_history, user.id, session_id)
     history.append({"role": "assistant", "content": reply})
     await asyncio.to_thread(save_history, history, user.id, session_id)
+    notify_task_success(
+        task="授权请示识别",
+        summary=str(project_name)[:160],
+        user=user,
+        session_id=session_id,
+        stage="AI 生成",
+    )
 
     return {
         "content": auth_content,

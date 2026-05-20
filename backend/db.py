@@ -1,5 +1,5 @@
 from pathlib import Path
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 
 _DATA_DIR = Path(__file__).parent.parent / "data"
@@ -35,6 +35,7 @@ def get_db():
 def init_db():
     import models  # noqa: F401 — register core models before create_all
     Base.metadata.create_all(engine)
+    _migrate_auth_schema()
     _seed()
     # llm_traces lives in a separate database (PostgreSQL). Initialise it
     # but don't let its failure break app startup — tracing degrades to
@@ -47,6 +48,29 @@ def init_db():
     except Exception:
         import logging
         logging.getLogger(__name__).exception("llm_audit DB init failed (non-fatal)")
+
+
+def _migrate_auth_schema():
+    """Apply tiny SQLite auth DB migrations not covered by create_all()."""
+    inspector = inspect(engine)
+    if "users" not in inspector.get_table_names():
+        return
+    columns = {col["name"] for col in inspector.get_columns("users")}
+    with engine.begin() as conn:
+        if "dingtalk_user_id" not in columns:
+            conn.execute(text("ALTER TABLE users ADD COLUMN dingtalk_user_id VARCHAR(100)"))
+        if "dingtalk_union_id" not in columns:
+            conn.execute(text("ALTER TABLE users ADD COLUMN dingtalk_union_id VARCHAR(100)"))
+        if "dingtalk_dept_ids" not in columns:
+            conn.execute(text("ALTER TABLE users ADD COLUMN dingtalk_dept_ids VARCHAR(300)"))
+        if "dingtalk_title" not in columns:
+            conn.execute(text("ALTER TABLE users ADD COLUMN dingtalk_title VARCHAR(100)"))
+        if "dingtalk_mobile_tail" not in columns:
+            conn.execute(text("ALTER TABLE users ADD COLUMN dingtalk_mobile_tail VARCHAR(8)"))
+        if "dingtalk_active" not in columns:
+            conn.execute(text("ALTER TABLE users ADD COLUMN dingtalk_active BOOLEAN"))
+        if "dingtalk_synced_at" not in columns:
+            conn.execute(text("ALTER TABLE users ADD COLUMN dingtalk_synced_at DATETIME"))
 
 
 def _seed():

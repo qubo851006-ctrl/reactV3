@@ -10,9 +10,26 @@ interface Props {
 }
 
 export default function UserMenu({ user, onLogout, onOpenAdmin, onOpenLlmDashboard }: Props) {
-  const { sendTestNotification } = useNotifier()
+  const { notifyError, notifySuccess, sendTestNotification } = useNotifier()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
+
+  async function sendDingtalkTestNotification() {
+    try {
+      const r = await fetch('/api/admin/dingtalk/test-notification', {
+        method: 'POST',
+        credentials: 'include',
+      })
+      const d = await r.json().catch(() => ({}))
+      if (!r.ok || !d.ok) {
+        notifyError('钉钉通知测试失败', '请检查 Webhook、加签密钥和后端日志')
+        return
+      }
+      notifySuccess('钉钉通知测试已发送', '请查看钉钉群是否收到测试消息')
+    } catch {
+      notifyError('钉钉通知测试失败', '无法连接后端服务')
+    }
+  }
 
   useEffect(() => {
     function handler(e: MouseEvent) {
@@ -71,6 +88,13 @@ export default function UserMenu({ user, onLogout, onOpenAdmin, onOpenLlmDashboa
                   <span>AI 质量仪表盘</span>
                 </button>
               )}
+              <button
+                onClick={() => { void sendDingtalkTestNotification(); setOpen(false) }}
+                className="w-full text-left px-3 py-2.5 text-sm text-slate-300 hover:bg-slate-700/50 transition-colors flex items-center gap-2.5"
+              >
+                <span className="text-base">钉</span>
+                <span>测试钉钉通知</span>
+              </button>
             </>
           )}
 

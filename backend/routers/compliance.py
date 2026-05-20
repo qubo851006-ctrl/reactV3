@@ -15,6 +15,7 @@ from auth_utils import get_current_user, require_admin
 from config import COMPLIANCE_LEDGER_EXCEL_PATH, COMPLIANCE_LEDGER_JSON_PATH
 from db import get_db
 from file_store import atomic_write_bytes, atomic_write_text, file_lock
+from integrations.dingtalk import notify_task_failure, notify_task_success
 from models import User
 from routers.chat import load_history, save_history
 from upload_validation import UploadValidationError, validate_pdf_upload
@@ -94,9 +95,21 @@ async def extract_compliance(
     try:
         item, llm_trace_ids = await asyncio.to_thread(_process)
     except Exception as e:
+        notify_task_failure(
+            task="合规审查信息识别",
+            summary=str(e)[:160],
+            user=user,
+            stage="AI 提取",
+        )
         raise HTTPException(status_code=502, detail=f"合规审查信息提取失败：{e}")
 
     write_log(db, user, "compliance_extract", f"提取合规审查台账：{item.get('title', safe_name)}", request)
+    notify_task_success(
+        task="合规审查信息识别",
+        summary=str(item.get("title", safe_name))[:160],
+        user=user,
+        stage="AI 提取",
+    )
     return {"item": item, "llm_trace_ids": llm_trace_ids}
 
 

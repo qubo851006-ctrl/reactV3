@@ -2,6 +2,17 @@ import type { VersionEntry } from './branding'
 
 export const VERSION_ENTRIES: VersionEntry[] = [
   {
+    version: 'v3.6.0',
+    date: '2026-05-20',
+    changes: [
+      { type: 'feat', text: '钉钉集成第一阶段上线：V3 长任务在识别完成或失败后可旁路发送钉钉提醒，覆盖培训识别、案件台账识别、合规审查识别、授权请示识别、三台账合并和审计问题分析；默认关闭，未配置时不影响现有业务。' },
+      { type: 'feat', text: '通知通道升级：支持钉钉群机器人 Webhook、群内 @ 指定人、企业内部应用工作通知给个人；消息统一包含任务类型、发起人、状态、阶段、摘要、时间和 V3 链接，不发送正文、PDF 原文或文件内容。' },
+      { type: 'feat', text: '钉钉企业应用能力接入：支持 AppKey/AppSecret 获取 access_token、发送个人工作通知、同步钉钉通讯录人员信息；同步默认只绑定已有 V3 用户，不自动创建账号。' },
+      { type: 'feat', text: '钉钉工作台免登：在钉钉容器内打开 V3 时，前端通过 JSAPI 获取 authCode，后端换取 userid/unionid/name 并复用现有 sid Cookie 登录；匹配不到 V3 用户时回落短码登录并提示联系管理员。' },
+      { type: 'feat', text: '运维与排障增强：新增通知开关、通知日志、同步日志和管理员测试接口，可单独测试群通知、企业应用凭证、个人工作通知、通讯录同步与免登配置。' },
+    ],
+  },
+  {
     version: 'v3.5.3',
     date: '2026-05-20',
     changes: [

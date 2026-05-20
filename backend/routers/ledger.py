@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session as DBSession
 from auth_utils import get_current_user, require_admin
 from audit_log import write_log
 from db import get_db
+from integrations.dingtalk import notify_task_failure, notify_task_success
 from models import User
 from file_store import atomic_write_bytes, atomic_write_text, file_lock, safe_child_path
 
@@ -158,6 +159,14 @@ async def extract_ledger(
         def send_error(msg: str) -> str:
             return f"data: {json.dumps({'error': msg}, ensure_ascii=False)}\n\n"
 
+        def notify_extract_failure(msg: str, stage: str) -> None:
+            notify_task_failure(
+                task="案件台账信息识别",
+                summary=msg[:160],
+                user=user,
+                stage=stage,
+            )
+
         # Collect every trace_id produced by LLM calls in this extract turn.
         # Returned in preview_payload so the frontend can attach user
         # accept/edit feedback after confirming.
@@ -178,15 +187,24 @@ async def extract_ledger(
             yield send(f"→ 文件处理完成，用时 {used_since(text_start)}")
 
             if not any((doc.get("text") or "").strip() for doc in docs):
-                yield send_error("OCR 未识别到可用于案件台账生成的正文，请检查扫描件清晰度或 OCR 服务配置后重试。")
+                msg = "OCR 未识别到可用于案件台账生成的正文，请检查扫描件清晰度或 OCR 服务配置后重试。"
+                notify_extract_failure(msg, "OCR 识别")
+                yield send_error(msg)
                 trace.finish()
                 return
 
             # Step 2: AI 提取字段（阻塞 LLM 调用卸载到线程池）
             yield send("**Step 2** 🤖 AI 抽取案件字段…")
             fields_start = time.perf_counter()
-            with trace.step("extract_case_fields"):
-                new_case = await asyncio.to_thread(extract_case_fields, docs, lambda m: None)
+            try:
+                with trace.step("extract_case_fields"):
+                    new_case = await asyncio.to_thread(extract_case_fields, docs, lambda m: None)
+            except Exception as e:
+                msg = f"案件字段识别失败：{e}"
+                notify_extract_failure(msg, "AI 字段提取")
+                yield send_error(msg)
+                trace.finish()
+                return
             yield send(f"→ AI 字段提取完成，用时 {used_since(fields_start)}")
             yield send(f"→ 案件名称：**{new_case.get('案件名称') or '（未提取到）'}**")
             yield send(f"→ 案由：**{new_case.get('案由') or '（未提取到）'}**")
@@ -195,9 +213,16 @@ async def extract_ledger(
             # Step 3: 比对台账（可能含 LLM 调用，卸载到线程池）
             yield send("**Step 3** 🔍 比对现有台账…")
             match_start = time.perf_counter()
-            with trace.step("match_existing_ledger"):
-                existing_cases = await asyncio.to_thread(load_cases_json)
-                match_idx = await asyncio.to_thread(find_matching_case_idx, new_case, existing_cases, docs)
+            try:
+                with trace.step("match_existing_ledger"):
+                    existing_cases = await asyncio.to_thread(load_cases_json)
+                    match_idx = await asyncio.to_thread(find_matching_case_idx, new_case, existing_cases, docs)
+            except Exception as e:
+                msg = f"案件台账匹配失败：{e}"
+                notify_extract_failure(msg, "台账匹配")
+                yield send_error(msg)
+                trace.finish()
+                return
             yield send(f"→ 台账匹配完成，用时 {used_since(match_start)}")
             yield send(f"→ {'匹配到第 ' + str(match_idx + 1) + ' 条记录' if match_idx is not None else '未匹配，将新增'}")
 
@@ -219,8 +244,15 @@ async def extract_ledger(
             # Step 5: 暂存待归档文书，确认写入后再进入正式归档目录。
             yield send("📁 暂存待归档文书…")
             archive_start = time.perf_counter()
-            with trace.step("stage_pending_archive"):
-                pending_archive_id = await asyncio.to_thread(_create_pending_upload, user_id, files_data, docs)
+            try:
+                with trace.step("stage_pending_archive"):
+                    pending_archive_id = await asyncio.to_thread(_create_pending_upload, user_id, files_data, docs)
+            except Exception as e:
+                msg = f"案件文书暂存失败：{e}"
+                notify_extract_failure(msg, "文件暂存")
+                yield send_error(msg)
+                trace.finish()
+                return
             yield send(f"→ 已暂存，用时 {used_since(archive_start)}")
 
             yield send(f"✅ 提取完成，总用时 {used_since(overall_start)}，等待确认…")
@@ -238,6 +270,12 @@ async def extract_ledger(
             "existing_count": len(existing_cases),
             "llm_trace_ids": list(trace_bucket.ids),
         }
+        notify_task_success(
+            task="案件台账信息识别",
+            summary=str(preview_case.get("案件名称", "") or "案件信息已识别，等待确认")[:160],
+            user=user,
+            stage="预览生成",
+        )
         yield f"data: {json.dumps(preview_payload, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")

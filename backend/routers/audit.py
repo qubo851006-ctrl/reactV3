@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session as DBSession
 from auth_utils import get_current_user
 from audit_log import write_log
 from db import get_db
+from integrations.dingtalk import notify_task_failure, notify_task_success
 from models import User
 from llm_client import get_llm_client
 from upload_validation import UploadValidationError, validate_excel_upload
@@ -336,8 +337,20 @@ async def analyze_audit(
     try:
         classified_rows, llm_trace_ids = await asyncio.to_thread(_run_full_analysis)
     except ValueError as e:
+        notify_task_failure(
+            task="审计问题分析",
+            summary=str(e)[:160],
+            user=user,
+            stage="数据校验",
+        )
         raise HTTPException(status_code=502, detail=str(e))
     except Exception as e:
+        notify_task_failure(
+            task="审计问题分析",
+            summary=str(e)[:160],
+            user=user,
+            stage="AI 分析",
+        )
         raise HTTPException(status_code=502, detail=f"LLM 调用失败：{e}")
     finally:
         trace.finish()
@@ -347,6 +360,12 @@ async def analyze_audit(
         db, user, "audit_analyze",
         f"审计分析 {len(classified_rows)} 条，其中 {disagreement_count} 条存在分类分歧",
         request,
+    )
+    notify_task_success(
+        task="审计问题分析",
+        summary=f"共 {len(classified_rows)} 条，{disagreement_count} 条存在分类分歧",
+        user=user,
+        stage="AI 分析",
     )
     return {"rows": classified_rows, "total": len(classified_rows), "llm_trace_ids": llm_trace_ids}
 

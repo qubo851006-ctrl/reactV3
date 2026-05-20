@@ -7,6 +7,7 @@ interface ManagedUser {
   department: string
   role: string
   status: string
+  dingtalk_user_id: string | null
   last_login_at: string | null
   active_sessions: number
 }
@@ -286,6 +287,16 @@ export default function UserAdminPanel({ open, onClose, currentUser }: Props) {
                   <div className="flex items-center justify-between">
                     <span className="text-slate-400">活跃设备</span>
                     <span className="text-slate-300">{selected.active_sessions} 台</span>
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 mb-1.5">钉钉 userId</label>
+                    <input
+                      value={selected.dingtalk_user_id ?? ''}
+                      onChange={e => setSelected({ ...selected, dingtalk_user_id: e.target.value })}
+                      onBlur={e => patchUser(selected.id, { dingtalk_user_id: e.currentTarget.value.trim() })}
+                      placeholder="阶段 2/3 定向通知预留"
+                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-2 text-slate-200 text-xs outline-none focus:border-indigo-500"
+                    />
                   </div>
                 </div>
 

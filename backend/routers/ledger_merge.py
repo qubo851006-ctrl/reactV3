@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session as DBSession
 from auth_utils import get_current_user
 from audit_log import write_log
 from db import get_db
+from integrations.dingtalk import notify_task_failure, notify_task_success
 from models import User
 from file_store import atomic_write_bytes, file_lock
 from upload_validation import validate_excel_upload
@@ -82,10 +83,22 @@ async def merge_excel(
         stats = await asyncio.to_thread(_merge_and_save)
 
         write_log(db, user, "ledger_merge", f"合并三台账，合同条数：{stats.get('total_contract', 0)}", request)
+        notify_task_success(
+            task="三台账合并",
+            summary=f"合同条数：{stats.get('total_contract', 0)}",
+            user=user,
+            stage="合并生成",
+        )
         return {"ok": True, **stats}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        notify_task_failure(
+            task="三台账合并",
+            summary=str(e)[:160],
+            user=user,
+            stage="合并生成",
+        )
         raise HTTPException(status_code=500, detail=f"合并失败：{e}")
 
 

@@ -2,6 +2,24 @@ import { useEffect, useState } from 'react'
 import type { AuthUser } from './AuthGate'
 import { APP_TITLE } from '../appMeta'
 
+declare global {
+  interface Window {
+    dd?: {
+      runtime?: {
+        permission?: {
+          requestAuthCode?: (options: {
+            corpId: string
+            onSuccess: (result: { code: string }) => void
+            onFail: (error: unknown) => void
+          }) => void
+        }
+      }
+      ready?: (callback: () => void) => void
+      error?: (callback: (error: unknown) => void) => void
+    }
+  }
+}
+
 interface SlimUser {
   id: number
   name: string
@@ -18,6 +36,7 @@ export default function IdentityLogin({ onLogin }: Props) {
   const [selected, setSelected] = useState<SlimUser | null>(null)
   const [code, setCode] = useState('')
   const [error, setError] = useState('')
+  const [ssoHint, setSsoHint] = useState('')
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
@@ -26,6 +45,57 @@ export default function IdentityLogin({ onLogin }: Props) {
       .then(d => setUsers(d.users ?? []))
       .catch(() => {})
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function tryDingTalkSso() {
+      try {
+        const cfgResp = await fetch('/api/auth/dingtalk/config')
+        const cfg = await cfgResp.json()
+        if (!cfg?.enabled || !cfg?.corp_id) return
+        if (!/DingTalk/i.test(navigator.userAgent) && !window.dd) return
+        setSsoHint('正在尝试钉钉免登…')
+        await ensureDingTalkJsApi()
+        if (cancelled) return
+        const dd = window.dd
+        const requestAuthCode = dd?.runtime?.permission?.requestAuthCode
+        if (!requestAuthCode) {
+          setSsoHint('当前钉钉环境暂不支持免登，仍可使用短码登录')
+          return
+        }
+        const code = await new Promise<string>((resolve, reject) => {
+          const run = () => requestAuthCode({
+            corpId: cfg.corp_id,
+            onSuccess: result => resolve(result.code),
+            onFail: reject,
+          })
+          if (dd?.ready) dd.ready(run)
+          else run()
+          dd?.error?.(reject)
+        })
+        if (cancelled) return
+        const loginResp = await fetch('/api/auth/dingtalk/sso', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ code }),
+        })
+        if (!loginResp.ok) {
+          const d = await loginResp.json().catch(() => ({}))
+          setSsoHint((d as { detail?: string }).detail ?? '钉钉免登失败，可使用短码登录')
+          return
+        }
+        const d = await loginResp.json()
+        onLogin(d.user)
+      } catch {
+        if (!cancelled) setSsoHint('钉钉免登未完成，可使用短码登录')
+      }
+    }
+
+    tryDingTalkSso()
+    return () => { cancelled = true }
+  }, [onLogin])
 
   const filtered = users.filter(
     u => u.name.includes(search) || u.department.includes(search)
@@ -67,6 +137,11 @@ export default function IdentityLogin({ onLogin }: Props) {
         </div>
 
         <div className="bg-slate-900 border border-slate-700/60 rounded-2xl p-6 shadow-2xl">
+          {ssoHint && (
+            <div className="text-xs text-sky-300 bg-sky-500/10 border border-sky-500/20 rounded-lg px-3 py-2 mb-4">
+              {ssoHint}
+            </div>
+          )}
           {!selected ? (
             /* ── Step 1：选择姓名 ── */
             <>
@@ -155,4 +230,24 @@ export default function IdentityLogin({ onLogin }: Props) {
       </div>
     </div>
   )
+}
+
+function ensureDingTalkJsApi(): Promise<void> {
+  if (window.dd) return Promise.resolve()
+  const existing = document.querySelector<HTMLScriptElement>('script[data-dingtalk-jsapi]')
+  if (existing) {
+    return new Promise((resolve, reject) => {
+      existing.addEventListener('load', () => resolve(), { once: true })
+      existing.addEventListener('error', () => reject(new Error('dingtalk jsapi load failed')), { once: true })
+    })
+  }
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script')
+    script.src = 'https://g.alicdn.com/dingding/dingtalk-jsapi/3.0.41/dingtalk.open.js'
+    script.async = true
+    script.dataset.dingtalkJsapi = 'true'
+    script.onload = () => resolve()
+    script.onerror = () => reject(new Error('dingtalk jsapi load failed'))
+    document.head.appendChild(script)
+  })
 }

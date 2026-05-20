@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session as DBSession
 from auth_utils import get_current_user
 from audit_log import write_log
 from db import get_db
+from integrations.dingtalk import notify_task_failure, notify_task_success
 from models import User
 from routers.chat import load_history, save_history
 from upload_validation import UploadValidationError, validate_image_upload, validate_pdf_upload
@@ -230,6 +231,8 @@ async def extract_training(
     signin_img: UploadFile = File(...),
     department: str = Form(""),
     vision_model: str = Form(""),
+    request: Request = None,
+    user: User = Depends(get_current_user),
 ):
     """
     提取培训信息并归档文件，但不写入 Excel。
@@ -244,11 +247,26 @@ async def extract_training(
     except UploadValidationError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    result = await asyncio.to_thread(
-        _run_training_extraction,
-        notice_bytes, signin_bytes, notice_name, signin_name, vision_model,
-    )
+    try:
+        result = await asyncio.to_thread(
+            _run_training_extraction,
+            notice_bytes, signin_bytes, notice_name, signin_name, vision_model,
+        )
+    except Exception as e:
+        notify_task_failure(
+            task="培训信息识别",
+            summary=str(e)[:160],
+            user=user,
+            stage="AI 识别",
+        )
+        raise
 
+    notify_task_success(
+        task="培训信息识别",
+        summary=str(result.get("topic") or notice_name)[:160],
+        user=user,
+        stage="AI 识别",
+    )
     return {**result, "department": department or ""}
 
 
@@ -313,7 +331,6 @@ def write_training(
     history = load_history(user.id, req.session_id)
     history.append({"role": "assistant", "content": reply})
     save_history(history, user.id, req.session_id)
-
     return {"ok": True, "excel_path": EXCEL_PATH}
 
 
