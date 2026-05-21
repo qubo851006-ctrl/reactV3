@@ -53,20 +53,20 @@ export default function LedgerFlow({ onComplete, onCancel, visionModel = '' }: P
       const task = await getBackgroundTask<LedgerPreview>(id)
       if (!mountedRef.current) return
       setTaskProgress(task.progress ?? 0)
-      setTaskMessage(task.message || '???????')
-      setLogs(prev => [...prev, task.message || '???????'])
+      setTaskMessage(task.message || '后台任务处理中')
+      setLogs(prev => [...prev, task.message || '后台任务处理中'])
       setTimeout(() => logRef.current?.scrollTo(0, logRef.current.scrollHeight), 50)
 
       if (task.status === 'succeeded') {
-        if (!task.result) throw new Error('????????????????')
+        if (!task.result) throw new Error('任务完成，但没有返回案件预览数据')
         setPreview(task.result)
         setEditedCase({ ...task.result.case_data, stages: task.result.case_data.stages.map(stage => ({ ...stage })) })
         setStep('confirm')
-        notifySuccess('????????', '???????????????????')
+        notifySuccess('案件台账提取完成', '已生成案件预览结果，请核对后写入台账。')
         return
       }
       if (task.status === 'failed' || task.status === 'cancelled') {
-        throw new Error(task.error || task.message || '????')
+        throw new Error(task.error || task.message || '提取失败')
       }
       await sleep(1000)
     }
@@ -79,20 +79,20 @@ export default function LedgerFlow({ onComplete, onCancel, visionModel = '' }: P
     setError('')
     setTaskId('')
     setTaskProgress(0)
-    setTaskMessage('????????')
+    setTaskMessage('正在提交识别任务')
     try {
       const started = await startLedgerExtractTask(files, visionModel)
       setTaskId(started.task_id)
       await waitForTask(started.task_id)
     } catch (e: unknown) {
-      let message = getErrorMessage(e, '????')
+      let message = getErrorMessage(e, '处理失败')
       try {
         const json = JSON.parse(message) as { detail?: unknown }
         message = typeof json.detail === 'string' ? json.detail : message
       } catch { /* keep original */ }
       setError(message)
       setStep('upload')
-      notifyError('????????', message)
+      notifyError('案件台账提取失败', message)
     }
   }
 
@@ -150,7 +150,7 @@ export default function LedgerFlow({ onComplete, onCancel, visionModel = '' }: P
       <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 my-3">
         <div className="flex items-center gap-2 text-slate-300 text-sm mb-3">
           <div className="animate-spin w-4 h-4 border-2 border-indigo-400 border-t-transparent rounded-full flex-shrink-0" />
-          <span>{taskMessage || '????????'}</span>
+          <span>{taskMessage || '正在提取文书信息'}</span>
         </div>
         <div className="mb-3 space-y-1">
           <div className="h-2 rounded-full bg-slate-700 overflow-hidden">
@@ -160,7 +160,7 @@ export default function LedgerFlow({ onComplete, onCancel, visionModel = '' }: P
             />
           </div>
           <div className="flex items-center justify-between text-[11px] text-slate-500">
-            <span>{taskId ? `?????${taskId}` : '?????'}</span>
+            <span>{taskId ? `任务编号：${taskId}` : '任务提交中'}</span>
             <span>{taskProgress}%</span>
           </div>
         </div>
@@ -175,7 +175,7 @@ export default function LedgerFlow({ onComplete, onCancel, visionModel = '' }: P
                 .replace(/`(.*?)`/g, '<code class="text-indigo-300">$1</code>')
             }} />
           ))}
-          {!logs.length && <div className="text-slate-600">????</div>}
+          {!logs.length && <div className="text-slate-600">等待处理</div>}
         </div>
       </div>
     )

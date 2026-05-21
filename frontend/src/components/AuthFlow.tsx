@@ -69,16 +69,16 @@ export default function AuthFlow({ onComplete, onCancel, visionModel = '' }: Pro
       const task = await getBackgroundTask<AuthResult>(id)
       if (!mountedRef.current) return
       setTaskProgress(task.progress ?? 0)
-      setTaskMessage(task.message || '???????')
+      setTaskMessage(task.message || '后台任务处理中')
 
       if (task.status === 'succeeded') {
-        if (!task.result) throw new Error('????????????????')
+        if (!task.result) throw new Error('任务完成，但没有返回授权请示结果')
         setResult(task.result)
-        notifySuccess('????????', '????????????????????')
+        notifySuccess('授权请示生成完成', '授权请示和授权书已生成，可以预览或下载。')
         return
       }
       if (task.status === 'failed' || task.status === 'cancelled') {
-        throw new Error(task.error || task.message || '????')
+        throw new Error(task.error || task.message || '处理失败')
       }
       await sleep(1000)
     }
@@ -90,19 +90,19 @@ export default function AuthFlow({ onComplete, onCancel, visionModel = '' }: Pro
     setError('')
     setTaskId('')
     setTaskProgress(0)
-    setTaskMessage('????????')
+    setTaskMessage('正在提交生成任务')
     try {
       const started = await startAuthRequestProcessTask(pdfFile, visionModel)
       setTaskId(started.task_id)
       await waitForTask(started.task_id)
     } catch (e: unknown) {
-      let message = getErrorMessage(e, '????')
+      let message = getErrorMessage(e, '处理失败')
       try {
         const json = JSON.parse(message) as { detail?: unknown }
         message = typeof json.detail === 'string' ? json.detail : message
       } catch { /* keep original */ }
       setError(message)
-      notifyError('????????', message)
+      notifyError('授权请示生成失败', message)
     } finally {
       if (mountedRef.current) setProcessing(false)
     }
@@ -136,8 +136,8 @@ export default function AuthFlow({ onComplete, onCancel, visionModel = '' }: Pro
         <div className="flex items-center gap-3 text-slate-300 mb-3">
           <div className="animate-spin w-5 h-5 border-2 border-indigo-400 border-t-transparent rounded-full" />
           <div>
-            <div className="text-sm">{taskMessage || '????????????'}</div>
-            <div className="text-xs text-slate-500 mt-0.5">???? / AI ?? / ?? Word ??</div>
+            <div className="text-sm">{taskMessage || '正在生成授权请示及授权书'}</div>
+            <div className="text-xs text-slate-500 mt-0.5">提取字段 / AI 起草 / 生成 Word 文件</div>
           </div>
         </div>
         <div className="h-2 rounded-full bg-slate-700 overflow-hidden">
@@ -147,7 +147,7 @@ export default function AuthFlow({ onComplete, onCancel, visionModel = '' }: Pro
           />
         </div>
         <div className="flex items-center justify-between text-[11px] text-slate-500 mt-1">
-          <span>{taskId ? `?????${taskId}` : '?????'}</span>
+          <span>{taskId ? `任务编号：${taskId}` : '任务提交中'}</span>
           <span>{taskProgress}%</span>
         </div>
       </div>

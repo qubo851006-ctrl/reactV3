@@ -44,18 +44,18 @@ export default function TrainingFlow({ onComplete, onCancel, visionModel = '' }:
       const task = await getBackgroundTask<TrainingResult>(id)
       if (!mountedRef.current) return
       setTaskProgress(task.progress ?? 0)
-      setTaskMessage(task.message || '???????')
+      setTaskMessage(task.message || '后台任务处理中')
 
       if (task.status === 'succeeded') {
-        if (!task.result) throw new Error('??????????????')
+        if (!task.result) throw new Error('任务完成，但没有返回识别结果')
         setExtracted(task.result)
         setEdited({ ...task.result })
         setStep('confirm')
-        notifySuccess('????????', '??????????????????')
+        notifySuccess('培训统计识别完成', '已生成预览结果，请核对后写入统计表。')
         return
       }
       if (task.status === 'failed' || task.status === 'cancelled') {
-        throw new Error(task.error || task.message || '????')
+        throw new Error(task.error || task.message || '识别失败')
       }
       await sleep(1000)
     }
@@ -67,20 +67,20 @@ export default function TrainingFlow({ onComplete, onCancel, visionModel = '' }:
     setError('')
     setTaskId('')
     setTaskProgress(0)
-    setTaskMessage('????????')
+    setTaskMessage('正在提交识别任务')
     try {
       const started = await startTrainingExtractTask(noticePdf, signinImg, department, visionModel)
       setTaskId(started.task_id)
       await waitForTask(started.task_id)
     } catch (e: unknown) {
-      let message = getErrorMessage(e, '????')
+      let message = getErrorMessage(e, '处理失败')
       try {
         const json = JSON.parse(message) as { detail?: unknown }
         message = typeof json.detail === 'string' ? json.detail : message
       } catch { /* keep original */ }
       setError(message)
       setStep('upload')
-      notifyError('????????', message)
+      notifyError('培训统计识别失败', message)
     }
   }
 
@@ -134,7 +134,7 @@ export default function TrainingFlow({ onComplete, onCancel, visionModel = '' }:
         <div className="space-y-3 text-slate-300">
           <div className="flex items-center gap-3">
             <div className="w-5 h-5 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
-            <span>{taskMessage || '??????????'}</span>
+            <span>{taskMessage || '正在识别处理，请稍候'}</span>
           </div>
           <div className="h-2 rounded-full bg-slate-700 overflow-hidden">
             <div
@@ -143,7 +143,7 @@ export default function TrainingFlow({ onComplete, onCancel, visionModel = '' }:
             />
           </div>
           <div className="flex items-center justify-between text-[11px] text-slate-500">
-            <span>{taskId ? `?????${taskId}` : '?????'}</span>
+            <span>{taskId ? `任务编号：${taskId}` : '任务提交中'}</span>
             <span>{taskProgress}%</span>
           </div>
         </div>

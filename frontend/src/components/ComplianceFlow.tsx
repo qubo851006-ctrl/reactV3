@@ -71,7 +71,7 @@ export default function ComplianceFlow({
   function applyExtractResult(result: ComplianceItem, llmTraceIds: string[]) {
     const normalised: ComplianceItem = {
       ...result,
-      undertaking_department: result.undertaking_department || '?????',
+      undertaking_department: result.undertaking_department || '法务合规部',
       background_materials: result.background_materials ?? [],
       review_rows: result.review_rows?.length ? result.review_rows : [{ ...EMPTY_ROW }],
     }
@@ -79,7 +79,7 @@ export default function ComplianceFlow({
     setOriginalItem(normalised)
     setTraceIds(llmTraceIds)
     setStep('review')
-    notifySuccess('??????????', '???????????????????')
+    notifySuccess('合规审查台账提取完成', '已生成预览结果，请核对后写入累计台账。')
   }
 
   async function waitForTask(id: string) {
@@ -87,15 +87,15 @@ export default function ComplianceFlow({
       const task = await getBackgroundTask<{ item: ComplianceItem; llm_trace_ids?: string[] }>(id)
       if (!mountedRef.current) return
       setTaskProgress(task.progress ?? 0)
-      setTaskMessage(task.message || '???????')
+      setTaskMessage(task.message || '后台任务处理中')
 
       if (task.status === 'succeeded') {
-        if (!task.result?.item) throw new Error('??????????????????')
+        if (!task.result?.item) throw new Error('任务完成，但没有返回合规审查预览数据')
         applyExtractResult(task.result.item, task.result.llm_trace_ids ?? [])
         return
       }
       if (task.status === 'failed' || task.status === 'cancelled') {
-        throw new Error(task.error || task.message || '????')
+        throw new Error(task.error || task.message || '提取失败')
       }
       await sleep(1000)
     }
@@ -107,20 +107,20 @@ export default function ComplianceFlow({
     setError('')
     setTaskId('')
     setTaskProgress(0)
-    setTaskMessage('????????')
+    setTaskMessage('正在提交识别任务')
     try {
       const started = await startComplianceExtractTask(file, visionModel)
       setTaskId(started.task_id)
       await waitForTask(started.task_id)
     } catch (e: unknown) {
-      let message = getErrorMessage(e, '????')
+      let message = getErrorMessage(e, '提取失败')
       try {
         const json = JSON.parse(message) as { detail?: unknown }
         message = typeof json.detail === 'string' ? json.detail : message
       } catch { /* keep original */ }
       setError(message)
       setStep('upload')
-      notifyError('??????????', message)
+      notifyError('合规审查台账提取失败', message)
     }
   }
 
@@ -179,8 +179,8 @@ export default function ComplianceFlow({
         <div className="flex items-center gap-3 text-slate-300 mb-3">
           <div className="animate-spin w-5 h-5 border-2 border-indigo-400 border-t-transparent rounded-full" />
           <div>
-            <div className="text-sm">{taskMessage || '????????????'}</div>
-            <div className="text-xs text-slate-500 mt-0.5">OA PDF ?? / OCR / AI ?? / ????</div>
+            <div className="text-sm">{taskMessage || '正在提取合规审查台账信息'}</div>
+            <div className="text-xs text-slate-500 mt-0.5">OA PDF 解析 / OCR / AI 抽取 / 生成预览</div>
           </div>
         </div>
         <div className="h-2 rounded-full bg-slate-700 overflow-hidden">
@@ -190,7 +190,7 @@ export default function ComplianceFlow({
           />
         </div>
         <div className="flex items-center justify-between text-[11px] text-slate-500 mt-1">
-          <span>{taskId ? `?????${taskId}` : '?????'}</span>
+          <span>{taskId ? `任务编号：${taskId}` : '任务提交中'}</span>
           <span>{taskProgress}%</span>
         </div>
       </div>

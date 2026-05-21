@@ -93,7 +93,7 @@ export default function AuditFlow({ onComplete, onCancel }: Props) {
     setOriginalRows(result.rows.map(r => ({ ...r })))
     setTraceIds(result.llm_trace_ids ?? [])
     setPhase('review')
-    notifySuccess('????????', `??? ${result.rows.length} ??????????????`)
+    notifySuccess('审计问题分析完成', `共分析 ${result.rows.length} 条问题，请审查确认分类结果。`)
   }
 
   async function waitForTask(id: string) {
@@ -101,41 +101,41 @@ export default function AuditFlow({ onComplete, onCancel }: Props) {
       const task = await getBackgroundTask<AuditAnalysisResult>(id)
       if (!mountedRef.current) return
       setTaskProgress(task.progress ?? 0)
-      setTaskMessage(task.message || '???????')
+      setTaskMessage(task.message || '后台任务处理中')
 
       if (task.status === 'succeeded') {
-        if (!task.result) throw new Error('????????????????')
+        if (!task.result) throw new Error('任务完成，但没有返回审计分析结果')
         applyAnalysisResult(task.result)
         return
       }
       if (task.status === 'failed' || task.status === 'cancelled') {
-        throw new Error(task.error || task.message || '????')
+        throw new Error(task.error || task.message || '分析失败')
       }
       await sleep(1000)
     }
   }
 
   async function startAnalyze() {
-    if (!file) { setError('???? Excel ??'); return }
-    if (domains.length === 0) { setError('???????????'); return }
+    if (!file) { setError('请先上传 Excel 文件'); return }
+    if (domains.length === 0) { setError('请至少配置一个业务领域'); return }
     setError('')
     setPhase('analyzing')
     setTaskId('')
     setTaskProgress(0)
-    setTaskMessage('????????')
+    setTaskMessage('正在提交分析任务')
     try {
       const started = await startAuditAnalyzeTask(file, domains)
       setTaskId(started.task_id)
       await waitForTask(started.task_id)
     } catch (e: unknown) {
-      let message = getErrorMessage(e, '????????')
+      let message = getErrorMessage(e, '分析失败，请重试')
       try {
         const json = JSON.parse(message) as { detail?: unknown }
         message = typeof json.detail === 'string' ? json.detail : message
       } catch { /* keep original */ }
       setError(message)
       setPhase('upload')
-      notifyError('????????', message)
+      notifyError('审计问题分析失败', message)
     }
   }
 
@@ -275,8 +275,8 @@ export default function AuditFlow({ onComplete, onCancel }: Props) {
       {phase === 'analyzing' && (
         <div className="py-8 text-center">
           <div className="text-3xl mb-3">AI</div>
-          <div className="text-sm font-medium text-slate-200 mb-1">{taskMessage || '????????'}</div>
-          <div className="text-xs text-slate-500">?? A ???? / ?? B ???? / ????</div>
+          <div className="text-sm font-medium text-slate-200 mb-1">{taskMessage || '双模型交叉分析中'}</div>
+          <div className="text-xs text-slate-500">模型 A 初步分类 / 模型 B 交叉校验 / 合并结果</div>
           <div className="mx-auto mt-5 max-w-sm">
             <div className="h-2 rounded-full bg-slate-700 overflow-hidden">
               <div
@@ -285,7 +285,7 @@ export default function AuditFlow({ onComplete, onCancel }: Props) {
               />
             </div>
             <div className="flex items-center justify-between text-[11px] text-slate-500 mt-1">
-              <span>{taskId ? `?????${taskId}` : '?????'}</span>
+              <span>{taskId ? `任务编号：${taskId}` : '任务提交中'}</span>
               <span>{taskProgress}%</span>
             </div>
           </div>
