@@ -1,5 +1,5 @@
-import { useState, useRef } from 'react'
-import { extractLedger, writeLedger, downloadLedgerExcel, getErrorMessage, submitLlmFeedback } from '../api'
+import { useEffect, useState, useRef } from 'react'
+import { getBackgroundTask, startLedgerExtractTask, writeLedger, downloadLedgerExcel, getErrorMessage, submitLlmFeedback } from '../api'
 import type { LedgerPreview, LedgerCaseData, LedgerStage } from '../types'
 import { useNotifier } from './NotificationContext'
 
@@ -10,6 +10,10 @@ interface Props {
 }
 
 type Step = 'upload' | 'processing' | 'confirm' | 'done'
+
+function sleep(ms: number) {
+  return new Promise(resolve => window.setTimeout(resolve, ms))
+}
 
 export default function LedgerFlow({ onComplete, onCancel, visionModel = '' }: Props) {
   const { notifySuccess, notifyError } = useNotifier()
@@ -22,8 +26,18 @@ export default function LedgerFlow({ onComplete, onCancel, visionModel = '' }: P
   const [error, setError] = useState('')
   const [writing, setWriting] = useState(false)
   const [drag, setDrag] = useState(false)
+  const [taskId, setTaskId] = useState('')
+  const [taskProgress, setTaskProgress] = useState(0)
+  const [taskMessage, setTaskMessage] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
   const logRef = useRef<HTMLDivElement>(null)
+  const mountedRef = useRef(true)
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
 
   function addFiles(newFiles: FileList | null) {
     if (!newFiles) return
@@ -34,25 +48,51 @@ export default function LedgerFlow({ onComplete, onCancel, visionModel = '' }: P
     })
   }
 
+  async function waitForTask(id: string) {
+    while (mountedRef.current) {
+      const task = await getBackgroundTask<LedgerPreview>(id)
+      if (!mountedRef.current) return
+      setTaskProgress(task.progress ?? 0)
+      setTaskMessage(task.message || '???????')
+      setLogs(prev => [...prev, task.message || '???????'])
+      setTimeout(() => logRef.current?.scrollTo(0, logRef.current.scrollHeight), 50)
+
+      if (task.status === 'succeeded') {
+        if (!task.result) throw new Error('????????????????')
+        setPreview(task.result)
+        setEditedCase({ ...task.result.case_data, stages: task.result.case_data.stages.map(stage => ({ ...stage })) })
+        setStep('confirm')
+        notifySuccess('????????', '???????????????????')
+        return
+      }
+      if (task.status === 'failed' || task.status === 'cancelled') {
+        throw new Error(task.error || task.message || '????')
+      }
+      await sleep(1000)
+    }
+  }
+
   async function handleExtract() {
     if (!files.length) return
     setStep('processing')
     setLogs([])
     setError('')
+    setTaskId('')
+    setTaskProgress(0)
+    setTaskMessage('????????')
     try {
-      const res = await extractLedger(files, visionModel, log => {
-        setLogs(prev => [...prev, log])
-        setTimeout(() => logRef.current?.scrollTo(0, logRef.current.scrollHeight), 50)
-      })
-      setPreview(res)
-      setEditedCase({ ...res.case_data, stages: res.case_data.stages.map(s => ({ ...s })) })
-      setStep('confirm')
-      notifySuccess('案件台账提取完成', '已生成案件预览结果，请核对后写入台账。')
+      const started = await startLedgerExtractTask(files, visionModel)
+      setTaskId(started.task_id)
+      await waitForTask(started.task_id)
     } catch (e: unknown) {
-      const message = getErrorMessage(e, '处理失败')
+      let message = getErrorMessage(e, '????')
+      try {
+        const json = JSON.parse(message) as { detail?: unknown }
+        message = typeof json.detail === 'string' ? json.detail : message
+      } catch { /* keep original */ }
       setError(message)
       setStep('upload')
-      notifyError('案件台账提取失败', message)
+      notifyError('????????', message)
     }
   }
 
@@ -110,7 +150,19 @@ export default function LedgerFlow({ onComplete, onCancel, visionModel = '' }: P
       <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 my-3">
         <div className="flex items-center gap-2 text-slate-300 text-sm mb-3">
           <div className="animate-spin w-4 h-4 border-2 border-indigo-400 border-t-transparent rounded-full flex-shrink-0" />
-          正在提取文书信息…
+          <span>{taskMessage || '????????'}</span>
+        </div>
+        <div className="mb-3 space-y-1">
+          <div className="h-2 rounded-full bg-slate-700 overflow-hidden">
+            <div
+              className="h-full rounded-full bg-indigo-500 transition-all duration-300"
+              style={{ width: `${Math.max(5, taskProgress)}%` }}
+            />
+          </div>
+          <div className="flex items-center justify-between text-[11px] text-slate-500">
+            <span>{taskId ? `?????${taskId}` : '?????'}</span>
+            <span>{taskProgress}%</span>
+          </div>
         </div>
         <div
           ref={logRef}
@@ -123,13 +175,12 @@ export default function LedgerFlow({ onComplete, onCancel, visionModel = '' }: P
                 .replace(/`(.*?)`/g, '<code class="text-indigo-300">$1</code>')
             }} />
           ))}
-          {!logs.length && <div className="text-slate-600">等待处理…</div>}
+          {!logs.length && <div className="text-slate-600">????</div>}
         </div>
       </div>
     )
   }
 
-  // ── 确认步骤 ────────────────────────────────────────────────
   if (step === 'confirm' && preview && editedCase) {
     const actionColor = preview.is_new ? 'text-green-400' : 'text-yellow-400'
     const actionIcon = preview.is_new ? '🆕' : '🔄'

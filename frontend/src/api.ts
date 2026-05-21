@@ -204,6 +204,18 @@ export async function extractLedger(
   return previewData
 }
 
+export async function startLedgerExtractTask(
+  files: File[],
+  visionModel: string,
+): Promise<{ ok: boolean; task_id: string }> {
+  const form = new FormData()
+  for (const f of files) form.append('files', f)
+  form.append('vision_model', visionModel)
+  const r = await apiFetch(`${BASE}/ledger/extract-task`, { method: 'POST', body: form })
+  if (!r.ok) throw new Error(await r.text())
+  return r.json()
+}
+
 export async function writeLedger(
   caseData: LedgerCaseData,
   matchIdx: number | null,

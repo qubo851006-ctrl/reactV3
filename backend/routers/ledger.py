@@ -21,6 +21,7 @@ from db import get_db
 from integrations.dingtalk import notify_task_failure, notify_task_success
 from models import User
 from file_store import atomic_write_bytes, atomic_write_text, file_lock, safe_child_path
+from task_runner import create_background_task, submit_background_task
 
 from config import LEDGER_JSON_PATH, LEDGER_EXCEL_PATH, LEDGER_OUTPUT_DIR
 from ledger_helpers import (
@@ -120,6 +121,73 @@ def _extract_ledger_docs(files_data: list[dict], vision_model: str, status_fn=No
                     f"文书类型：**{doc.get('doc_type') or '其他'}**{ocr_text}"
                 )
     return [doc for doc in docs if doc is not None]
+
+
+def _run_ledger_extraction(
+    user_id: int,
+    files_data: list[dict],
+    vision_model: str,
+    *,
+    on_progress=None,
+) -> dict:
+    from llm_audit.context import collect_traces
+
+    trace = PerfTrace("ledger.extract", user_id)
+
+    def progress(value: int, message: str) -> None:
+        if on_progress:
+            on_progress(value, message)
+
+    try:
+        with collect_traces() as trace_bucket:
+            progress(10, "正在提取文书文字")
+            with trace.step("extract_docs"):
+                docs = _extract_ledger_docs(files_data, vision_model)
+
+            if not any((doc.get("text") or "").strip() for doc in docs):
+                raise RuntimeError("OCR 未识别到可用于案件台账生成的正文，请检查扫描件清晰度或 OCR 服务配置后重试。")
+
+            progress(35, "正在识别案件字段")
+            with trace.step("extract_case_fields"):
+                new_case = extract_case_fields(docs, lambda _m: None)
+
+            progress(65, "正在比对现有台账")
+            with trace.step("match_existing_ledger"):
+                existing_cases = load_cases_json()
+                match_idx = find_matching_case_idx(new_case, existing_cases, docs)
+
+            existing_archive_name = ""
+            if match_idx is not None:
+                existing_archive_name = existing_cases[match_idx].get("案件名称", "")
+                preview_case = merge_case_data(existing_cases[match_idx], new_case)
+                case_name = preview_case.get("案件名称", "")
+                stage_summary = "、".join(s["审级"] for s in preview_case.get("stages", []))
+                action_text = f"已有案件《{case_name}》，将更新（审级：{stage_summary or '无'}）"
+                is_new = False
+            else:
+                preview_case = new_case
+                case_name = preview_case.get("案件名称", "")
+                action_text = f"新案件《{case_name or '（待补充）'}》，将新增至台账"
+                is_new = True
+
+            progress(85, "正在暂存待归档文书")
+            with trace.step("stage_pending_archive"):
+                pending_archive_id = _create_pending_upload(user_id, files_data, docs)
+
+            return {
+                "preview": True,
+                "case_data": preview_case,
+                "match_idx": match_idx,
+                "is_new": is_new,
+                "action_text": action_text,
+                "archive_dir": "",
+                "existing_archive_name": existing_archive_name,
+                "pending_archive_id": pending_archive_id,
+                "existing_count": len(existing_cases),
+                "llm_trace_ids": list(trace_bucket.ids),
+            }
+    finally:
+        trace.finish()
 
 
 # ── 提取（SSE 流式，不写入）──────────────────────────────────
@@ -279,6 +347,68 @@ async def extract_ledger(
         yield f"data: {json.dumps(preview_payload, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@router.post("/extract-task")
+async def start_ledger_extract_task(
+    files: list[UploadFile] = File(...),
+    vision_model: str = Form(""),
+    db: DBSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    user_id = user.id
+    files_data = []
+    for f in files:
+        b = await f.read()
+        try:
+            safe_name = validate_legal_upload(f.filename or "", f.content_type, b)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        files_data.append({"name": safe_name, "bytes": b, "content_type": f.content_type})
+
+    task = create_background_task(
+        db,
+        task_type="ledger_extract",
+        created_by=user_id,
+        message="已接收文件，等待识别",
+    )
+
+    def _worker(ctx, task_db: DBSession) -> dict:
+        task_user = task_db.query(User).filter(User.id == user_id).first()
+        if not task_user:
+            raise RuntimeError("发起用户不存在")
+        try:
+            result = _run_ledger_extraction(
+                user_id,
+                files_data,
+                vision_model,
+                on_progress=lambda progress, message: ctx.update(progress=progress, message=message),
+            )
+            write_log(
+                task_db,
+                task_user,
+                "ledger_extract",
+                f"识别案件台账：{result.get('case_data', {}).get('案件名称', '')}",
+                None,
+            )
+            notify_task_success(
+                task="案件台账信息识别",
+                summary=str(result.get("case_data", {}).get("案件名称", "") or "案件信息已识别，等待确认")[:160],
+                user=task_user,
+                stage="预览生成",
+            )
+            return result
+        except Exception as exc:
+            notify_task_failure(
+                task="案件台账信息识别",
+                summary=str(exc)[:160],
+                user=task_user,
+                stage="AI 识别",
+            )
+            raise
+
+    submit_background_task(task.task_id, _worker)
+    return {"ok": True, "task_id": task.task_id}
 
 
 # ── 确认写入台账 ──────────────────────────────────────────────
