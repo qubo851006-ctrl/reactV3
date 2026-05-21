@@ -10,7 +10,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { getBackgroundTask, getErrorMessage, listBackgroundTasks, startLedgerExtractTask, startLedgerMergeTask, startTrainingExtractTask, submitLlmFeedback } from '../src/api'
+import { getBackgroundTask, getErrorMessage, listBackgroundTasks, startComplianceExtractTask, startLedgerExtractTask, startLedgerMergeTask, startTrainingExtractTask, submitLlmFeedback } from '../src/api'
 
 describe('getErrorMessage', () => {
   it('returns the Error.message for Error instances', () => {
@@ -171,6 +171,21 @@ describe('background task API helpers', () => {
 
     expect(result.task_id).toBe('task_ledger')
     expect(fetchSpy).toHaveBeenCalledWith('/api/ledger/extract-task', expect.objectContaining({
+      method: 'POST',
+      body: expect.any(FormData),
+    }))
+  })
+
+  it('starts compliance extract tasks through the async endpoint', async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true, task_id: 'task_compliance' }), { status: 200 }),
+    )
+    const file = new File([new Uint8Array([0x25, 0x50, 0x44, 0x46])], 'compliance.pdf', { type: 'application/pdf' })
+
+    const result = await startComplianceExtractTask(file, 'vision-test')
+
+    expect(result.task_id).toBe('task_compliance')
+    expect(fetchSpy).toHaveBeenCalledWith('/api/compliance/extract-task', expect.objectContaining({
       method: 'POST',
       body: expect.any(FormData),
     }))
