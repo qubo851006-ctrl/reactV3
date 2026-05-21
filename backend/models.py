@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from db import Base
 
@@ -99,4 +99,22 @@ class DingTalkSyncLog(Base):
     skipped_count: Mapped[int] = mapped_column(Integer, default=0)
     error: Mapped[str | None] = mapped_column(String(500), nullable=True)
     started_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class BackgroundTask(Base):
+    __tablename__ = "background_tasks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    task_id: Mapped[str] = mapped_column(String(80), unique=True, index=True)
+    type: Mapped[str] = mapped_column(String(80), index=True)
+    status: Mapped[str] = mapped_column(String(20), default="queued", index=True)
+    progress: Mapped[int] = mapped_column(Integer, default=0)
+    message: Mapped[str] = mapped_column(String(300), default="")
+    result_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

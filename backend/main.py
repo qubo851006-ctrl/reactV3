@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
-from routers import chat, training, ledger, auth_request, ledger_merge, audit, model_routes, compliance, llm_traces
+from routers import chat, training, ledger, auth_request, ledger_merge, audit, model_routes, compliance, llm_traces, tasks
 from routers import auth as auth_router
 from routers import admin_users
 from auth_utils import get_current_user
@@ -35,6 +35,7 @@ app.include_router(training.router,     dependencies=_auth)
 app.include_router(ledger.router,       dependencies=_auth)
 app.include_router(auth_request.router, dependencies=_auth)
 app.include_router(ledger_merge.router, dependencies=_auth)
+app.include_router(tasks.router,        dependencies=_auth)
 app.include_router(audit.router,        dependencies=_auth)
 app.include_router(compliance.router,   dependencies=_auth)
 app.include_router(model_routes.router, dependencies=_auth)

@@ -26,6 +26,7 @@ def main() -> int:
         "audit_logs",
         "notification_logs",
         "dingtalk_sync_logs",
+        "background_tasks",
     }
     missing = sorted(expected - tables)
 

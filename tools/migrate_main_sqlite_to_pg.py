@@ -23,6 +23,7 @@ TABLE_ORDER = [
     "audit_logs",
     "notification_logs",
     "dingtalk_sync_logs",
+    "background_tasks",
 ]
 
 

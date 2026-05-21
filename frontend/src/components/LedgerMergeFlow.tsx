@@ -1,5 +1,11 @@
-import { useRef, useState } from 'react'
-import { mergeLedgers, downloadMergedExcel, getErrorMessage, type MergeStats } from '../api'
+import { useEffect, useRef, useState } from 'react'
+import {
+  downloadMergedExcel,
+  getBackgroundTask,
+  getErrorMessage,
+  startLedgerMergeTask,
+  type MergeStats,
+} from '../api'
 import { useNotifier } from './NotificationContext'
 
 interface Props {
@@ -15,6 +21,10 @@ interface FileZoneProps {
   file: File | null
   onChange: (f: File | null) => void
   disabled: boolean
+}
+
+function sleep(ms: number) {
+  return new Promise(resolve => window.setTimeout(resolve, ms))
 }
 
 function FileZone({ label, badge, badgeColor, required, file, onChange, disabled }: FileZoneProps) {
@@ -50,9 +60,7 @@ function FileZone({ label, badge, badgeColor, required, file, onChange, disabled
         onChange={e => { const f = e.target.files?.[0]; if (f) onChange(f); e.target.value = '' }}
       />
       <div className="flex items-center gap-2">
-        <span
-          className={`text-xs font-semibold px-2 py-0.5 rounded-full ${badgeColor}`}
-        >
+        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${badgeColor}`}>
           {badge}
         </span>
         {required && <span className="text-xs text-red-400">必填</span>}
@@ -60,13 +68,13 @@ function FileZone({ label, badge, badgeColor, required, file, onChange, disabled
       <div className="text-sm font-medium text-slate-200">{label}</div>
       {file ? (
         <div className="flex items-center gap-2 mt-1">
-          <span className="text-emerald-400 text-xs">✓</span>
+          <span className="text-emerald-400 text-xs">已选</span>
           <span className="text-xs text-emerald-400 truncate max-w-[180px]">{file.name}</span>
           <button
             onClick={e => { e.stopPropagation(); onChange(null) }}
             className="text-slate-500 hover:text-red-400 text-xs transition-colors"
           >
-            ✕
+            移除
           </button>
         </div>
       ) : (
@@ -82,19 +90,52 @@ export default function LedgerMergeFlow({ onComplete, onCancel }: Props) {
   const [purchaseFile, setPurchaseFile] = useState<File | null>(null)
   const [financeFile, setFinanceFile] = useState<File | null>(null)
   const [processing, setProcessing] = useState(false)
+  const [taskId, setTaskId] = useState('')
+  const [taskMessage, setTaskMessage] = useState('')
+  const [taskProgress, setTaskProgress] = useState(0)
   const [stats, setStats] = useState<MergeStats | null>(null)
   const [error, setError] = useState('')
+  const mountedRef = useRef(true)
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
 
   const canSubmit = !!contractFile && !processing
+
+  async function waitForTask(id: string) {
+    while (mountedRef.current) {
+      const task = await getBackgroundTask<MergeStats>(id)
+      if (!mountedRef.current) return
+      setTaskProgress(task.progress ?? 0)
+      setTaskMessage(task.message || '任务处理中')
+
+      if (task.status === 'succeeded') {
+        if (!task.result) throw new Error('任务完成，但没有返回合并结果')
+        setStats(task.result)
+        notifySuccess('三台账合并完成', `合同系统 ${task.result.total_contract} 条，全部匹配 ${task.result.fully_matched} 条。`)
+        return
+      }
+      if (task.status === 'failed' || task.status === 'cancelled') {
+        throw new Error(task.error || task.message || '合并失败')
+      }
+      await sleep(1000)
+    }
+  }
 
   async function handleMerge() {
     if (!contractFile) return
     setProcessing(true)
     setError('')
+    setStats(null)
+    setTaskProgress(0)
+    setTaskMessage('正在提交任务')
     try {
-      const result = await mergeLedgers(contractFile, purchaseFile, financeFile)
-      setStats(result)
-      notifySuccess('三台账合并完成', `合同系统 ${result.total_contract} 条，全部匹配 ${result.fully_matched} 条。`)
+      const started = await startLedgerMergeTask(contractFile, purchaseFile, financeFile)
+      setTaskId(started.task_id)
+      await waitForTask(started.task_id)
     } catch (e: unknown) {
       let msg = getErrorMessage(e, '合并失败')
       try {
@@ -104,7 +145,7 @@ export default function LedgerMergeFlow({ onComplete, onCancel }: Props) {
       setError(msg)
       notifyError('三台账合并失败', msg)
     } finally {
-      setProcessing(false)
+      if (mountedRef.current) setProcessing(false)
     }
   }
 
@@ -112,17 +153,14 @@ export default function LedgerMergeFlow({ onComplete, onCancel }: Props) {
     downloadMergedExcel(stats?.result_id ?? '')
     const hasPurchase = !!purchaseFile
     const hasFinance = !!financeFile
-    const parts = ['合同系统']
-    if (hasPurchase) parts.push(`采购系统（匹配 ${stats!.matched_purchase}/${stats!.total_contract} 条）`)
-    if (hasFinance) parts.push(`财务系统（匹配 ${stats!.matched_finance}/${stats!.total_contract} 条）`)
     onComplete(
-      `✅ 三台账合并完成！\n\n` +
-      `- 合同系统台账：**${stats!.total_contract}** 条记录\n` +
-      (hasPurchase ? `- 采购系统匹配：**${stats!.matched_purchase}** 条\n` : '') +
-      (hasFinance ? `- 财务系统匹配：**${stats!.matched_finance}** 条\n` : '') +
-      `- 全部匹配：**${stats!.fully_matched}** 条\n` +
-      (stats!.partial_matched > 0 ? `- 部分匹配：**${stats!.partial_matched}** 条\n` : '') +
-      (stats!.unmatched > 0 ? `- 未匹配：**${stats!.unmatched}** 条\n` : '') +
+      `三台账合并完成。\n\n` +
+      `- 合同系统台账：${stats!.total_contract} 条记录\n` +
+      (hasPurchase ? `- 采购系统匹配：${stats!.matched_purchase} 条\n` : '') +
+      (hasFinance ? `- 财务系统匹配：${stats!.matched_finance} 条\n` : '') +
+      `- 全部匹配：${stats!.fully_matched} 条\n` +
+      (stats!.partial_matched > 0 ? `- 部分匹配：${stats!.partial_matched} 条\n` : '') +
+      (stats!.unmatched > 0 ? `- 未匹配：${stats!.unmatched} 条\n` : '') +
       `\n合并台账已下载。`
     )
   }
@@ -131,7 +169,7 @@ export default function LedgerMergeFlow({ onComplete, onCancel }: Props) {
     <div className="bg-slate-800 border border-slate-700 rounded-2xl p-5 my-3 space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className="text-lg">🔀</span>
+          <span className="text-lg">合</span>
           <span className="text-sm font-semibold text-white">三台账合并</span>
         </div>
         <div className="flex items-center gap-3">
@@ -154,10 +192,9 @@ export default function LedgerMergeFlow({ onComplete, onCancel }: Props) {
       </div>
 
       <p className="text-xs text-slate-400">
-        以合同系统台账为主键，将采购和财务台账按合同编号合并。支持大小写、全角括号等差异的模糊匹配。
+        以合同系统台账为主键，将采购和财务台账按合同编号合并。任务提交后会在后台处理，完成后可下载结果。
       </p>
 
-      {/* 上传区 */}
       {!stats && (
         <div className="space-y-3">
           <FileZone
@@ -188,30 +225,28 @@ export default function LedgerMergeFlow({ onComplete, onCancel }: Props) {
         </div>
       )}
 
-      {/* 错误提示 */}
       {error && (
         <div className="text-xs text-red-400 bg-red-900/20 border border-red-800/40 rounded-lg px-3 py-2">
-          ❌ {error}
+          {error}
         </div>
       )}
 
-      {/* 处理中 */}
       {processing && (
-        <div className="flex items-center gap-3 text-sm text-slate-400 py-2">
-          <div className="flex gap-1">
-            {[0, 150, 300].map(d => (
-              <span
-                key={d}
-                className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce"
-                style={{ animationDelay: `${d}ms` }}
-              />
-            ))}
+        <div className="space-y-2 text-sm text-slate-400 py-2">
+          <div className="flex items-center justify-between gap-3">
+            <span>{taskMessage || '后台任务处理中'}</span>
+            <span className="text-xs text-slate-500">{taskProgress}%</span>
           </div>
-          正在合并台账，请稍候…
+          <div className="h-2 rounded-full bg-slate-700 overflow-hidden">
+            <div
+              className="h-full rounded-full bg-indigo-500 transition-all duration-300"
+              style={{ width: `${Math.max(5, taskProgress)}%` }}
+            />
+          </div>
+          {taskId && <div className="text-[11px] text-slate-500">任务编号：{taskId}</div>}
         </div>
       )}
 
-      {/* 合并结果 */}
       {stats && (
         <div className="space-y-3">
           <div className="bg-slate-900/60 rounded-xl p-4 space-y-2">
@@ -245,12 +280,11 @@ export default function LedgerMergeFlow({ onComplete, onCancel }: Props) {
             onClick={handleDownload}
             className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-sm rounded-xl transition-colors font-medium"
           >
-            📥 下载合并台账 Excel
+            下载合并台账 Excel
           </button>
         </div>
       )}
 
-      {/* 操作按钮 */}
       {!stats && (
         <div className="flex gap-2 pt-1">
           <button
@@ -258,7 +292,7 @@ export default function LedgerMergeFlow({ onComplete, onCancel }: Props) {
             disabled={!canSubmit}
             className="flex-1 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm rounded-xl transition-colors font-medium"
           >
-            开始合并
+            {processing ? '后台合并中' : '开始合并'}
           </button>
         </div>
       )}

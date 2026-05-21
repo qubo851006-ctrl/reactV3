@@ -296,6 +296,23 @@ export interface MergeStats {
   unmatched: number
 }
 
+export type BackgroundTaskStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
+
+export interface BackgroundTask<T = unknown> {
+  task_id: string
+  type: string
+  status: BackgroundTaskStatus
+  progress: number
+  message: string
+  result: T | null
+  error: string | null
+  created_by: number | null
+  created_at: string | null
+  updated_at: string | null
+  started_at: string | null
+  finished_at: string | null
+}
+
 export async function mergeLedgers(
   contractFile: File,
   purchaseFile: File | null,
@@ -306,6 +323,26 @@ export async function mergeLedgers(
   if (purchaseFile) form.append('purchase_file', purchaseFile)
   if (financeFile) form.append('finance_file', financeFile)
   const r = await apiFetch(`${BASE}/ledger-merge/merge`, { method: 'POST', body: form })
+  if (!r.ok) throw new Error(await r.text())
+  return r.json()
+}
+
+export async function startLedgerMergeTask(
+  contractFile: File,
+  purchaseFile: File | null,
+  financeFile: File | null,
+): Promise<{ ok: boolean; task_id: string }> {
+  const form = new FormData()
+  form.append('contract_file', contractFile)
+  if (purchaseFile) form.append('purchase_file', purchaseFile)
+  if (financeFile) form.append('finance_file', financeFile)
+  const r = await apiFetch(`${BASE}/ledger-merge/merge-task`, { method: 'POST', body: form })
+  if (!r.ok) throw new Error(await r.text())
+  return r.json()
+}
+
+export async function getBackgroundTask<T = unknown>(taskId: string): Promise<BackgroundTask<T>> {
+  const r = await apiFetch(`${BASE}/tasks/${encodeURIComponent(taskId)}`)
   if (!r.ok) throw new Error(await r.text())
   return r.json()
 }

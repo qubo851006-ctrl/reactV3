@@ -131,6 +131,7 @@ def _drop_orphan_pg_sequences():
         "audit_logs",
         "notification_logs",
         "dingtalk_sync_logs",
+        "background_tasks",
     ]
     with engine.begin() as conn:
         for table_name in tables:
