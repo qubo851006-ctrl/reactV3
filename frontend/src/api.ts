@@ -434,6 +434,18 @@ export async function analyzeAudit(
   return r.json()
 }
 
+export async function startAuditAnalyzeTask(
+  file: File,
+  domains: string[],
+): Promise<{ ok: boolean; task_id: string }> {
+  const form = new FormData()
+  form.append('file', file)
+  form.append('domains', JSON.stringify(domains))
+  const r = await apiFetch(`${BASE}/audit/analyze-task`, { method: 'POST', body: form })
+  if (!r.ok) throw new Error(await r.text())
+  return r.json()
+}
+
 export async function downloadAuditExcel(rows: AuditRow[], originalFilename: string) {
   const r = await apiFetch(`${BASE}/audit/download`, {
     method: 'POST',
@@ -458,6 +470,16 @@ export async function processAuthRequest(pdfFile: File, visionModel: string) {
   form.append('session_id', _sid)
   form.append('vision_model', visionModel)
   const r = await apiFetch(`${BASE}/auth-request/process`, { method: 'POST', body: form })
+  if (!r.ok) throw new Error(await r.text())
+  return r.json()
+}
+
+export async function startAuthRequestProcessTask(pdfFile: File, visionModel: string): Promise<{ ok: boolean; task_id: string }> {
+  const form = new FormData()
+  form.append('pdf_file', pdfFile)
+  form.append('session_id', _sid)
+  form.append('vision_model', visionModel)
+  const r = await apiFetch(`${BASE}/auth-request/process-task`, { method: 'POST', body: form })
   if (!r.ok) throw new Error(await r.text())
   return r.json()
 }

@@ -1,6 +1,6 @@
-import { useRef, useState } from 'react'
-import type { AuditRow } from '../api'
-import { analyzeAudit, downloadAuditExcel, getErrorMessage, submitLlmFeedback } from '../api'
+import { useEffect, useRef, useState } from 'react'
+import type { AuditAnalysisResult, AuditRow } from '../api'
+import { downloadAuditExcel, getBackgroundTask, getErrorMessage, startAuditAnalyzeTask, submitLlmFeedback } from '../api'
 import TagGroup from './audit/TagGroup'
 import PieSection from './audit/PieSection'
 import { useNotifier } from './NotificationContext'
@@ -11,6 +11,10 @@ interface Props {
 }
 
 type Phase = 'upload' | 'analyzing' | 'review' | 'report'
+
+function sleep(ms: number) {
+  return new Promise(resolve => window.setTimeout(resolve, ms))
+}
 
 // ── 分类体系常量（与后端 CATEGORY_TAXONOMY 保持一致）────────────
 
@@ -47,7 +51,17 @@ export default function AuditFlow({ onComplete, onCancel }: Props) {
   const [traceIds, setTraceIds] = useState<string[]>([])
   const [error, setError] = useState('')
   const [downloading, setDownloading] = useState(false)
+  const [taskId, setTaskId] = useState('')
+  const [taskProgress, setTaskProgress] = useState(0)
+  const [taskMessage, setTaskMessage] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const mountedRef = useRef(true)
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
 
   function handleCancel() {
     if (traceIds.length > 0) submitLlmFeedback(traceIds, false, null)
@@ -74,27 +88,56 @@ export default function AuditFlow({ onComplete, onCancel }: Props) {
 
   // ── 开始分析 ──
 
-  async function startAnalyze() {
-    if (!file) { setError('请先上传 Excel 文件'); return }
-    if (domains.length === 0) { setError('请至少配置一个业务领域'); return }
-    setError('')
-    setPhase('analyzing')
-    try {
-      const result = await analyzeAudit(file, domains)
-      setRows(result.rows)
-      setOriginalRows(result.rows.map(r => ({ ...r })))
-      setTraceIds(result.llm_trace_ids ?? [])
-      setPhase('review')
-      notifySuccess('审计问题分析完成', `共分析 ${result.rows.length} 条问题，请审查确认分类结果。`)
-    } catch (e: unknown) {
-      const message = getErrorMessage(e, '分析失败，请重试')
-      setError(message)
-      setPhase('upload')
-      notifyError('审计问题分析失败', message)
+  function applyAnalysisResult(result: AuditAnalysisResult) {
+    setRows(result.rows)
+    setOriginalRows(result.rows.map(r => ({ ...r })))
+    setTraceIds(result.llm_trace_ids ?? [])
+    setPhase('review')
+    notifySuccess('????????', `??? ${result.rows.length} ??????????????`)
+  }
+
+  async function waitForTask(id: string) {
+    while (mountedRef.current) {
+      const task = await getBackgroundTask<AuditAnalysisResult>(id)
+      if (!mountedRef.current) return
+      setTaskProgress(task.progress ?? 0)
+      setTaskMessage(task.message || '???????')
+
+      if (task.status === 'succeeded') {
+        if (!task.result) throw new Error('????????????????')
+        applyAnalysisResult(task.result)
+        return
+      }
+      if (task.status === 'failed' || task.status === 'cancelled') {
+        throw new Error(task.error || task.message || '????')
+      }
+      await sleep(1000)
     }
   }
 
-  // ── 行更新 ──
+  async function startAnalyze() {
+    if (!file) { setError('???? Excel ??'); return }
+    if (domains.length === 0) { setError('???????????'); return }
+    setError('')
+    setPhase('analyzing')
+    setTaskId('')
+    setTaskProgress(0)
+    setTaskMessage('????????')
+    try {
+      const started = await startAuditAnalyzeTask(file, domains)
+      setTaskId(started.task_id)
+      await waitForTask(started.task_id)
+    } catch (e: unknown) {
+      let message = getErrorMessage(e, '????????')
+      try {
+        const json = JSON.parse(message) as { detail?: unknown }
+        message = typeof json.detail === 'string' ? json.detail : message
+      } catch { /* keep original */ }
+      setError(message)
+      setPhase('upload')
+      notifyError('????????', message)
+    }
+  }
 
   function updateRow(i: number, patch: Partial<AuditRow>) {
     setRows(prev => {
@@ -231,22 +274,24 @@ export default function AuditFlow({ onComplete, onCancel }: Props) {
       {/* ── Phase 2: 分析中 ── */}
       {phase === 'analyzing' && (
         <div className="py-8 text-center">
-          <div className="text-3xl mb-3">⏳</div>
-          <div className="text-sm font-medium text-slate-200 mb-1">双模型交叉分析中…</div>
-          <div className="text-xs text-slate-500">模型A 初步分类 → 模型B 交叉校验，耗时约为单次的 2 倍，请稍候</div>
-          <div className="flex justify-center gap-1 mt-5">
-            {[0, 150, 300].map(delay => (
-              <span
-                key={delay}
-                className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce"
-                style={{ animationDelay: `${delay}ms` }}
+          <div className="text-3xl mb-3">AI</div>
+          <div className="text-sm font-medium text-slate-200 mb-1">{taskMessage || '????????'}</div>
+          <div className="text-xs text-slate-500">?? A ???? / ?? B ???? / ????</div>
+          <div className="mx-auto mt-5 max-w-sm">
+            <div className="h-2 rounded-full bg-slate-700 overflow-hidden">
+              <div
+                className="h-full rounded-full bg-indigo-500 transition-all duration-300"
+                style={{ width: `${Math.max(5, taskProgress)}%` }}
               />
-            ))}
+            </div>
+            <div className="flex items-center justify-between text-[11px] text-slate-500 mt-1">
+              <span>{taskId ? `?????${taskId}` : '?????'}</span>
+              <span>{taskProgress}%</span>
+            </div>
           </div>
         </div>
       )}
 
-      {/* ── Phase 3: 审查确认 ── */}
       {phase === 'review' && (
         <>
           <div className="text-sm font-semibold text-slate-200 mb-1">

@@ -19,6 +19,7 @@ from db import get_db
 from integrations.dingtalk import notify_task_failure, notify_task_success
 from models import User
 from llm_client import get_llm_client
+from task_runner import create_background_task, submit_background_task
 from upload_validation import UploadValidationError, validate_excel_upload
 from perf_trace import PerfTrace
 
@@ -268,6 +269,65 @@ def _merge_ab_results(rows_a: list[dict], corrections: list[dict]) -> list[dict]
     return result
 
 
+def _run_audit_analysis(
+    content: bytes,
+    filename: str,
+    content_type: str | None,
+    doms: list[str],
+    user_id: int,
+    *,
+    on_progress=None,
+) -> tuple[list[dict], list[str]]:
+    trace = PerfTrace("audit.analyze", user_id)
+
+    def progress(value: int, message: str) -> None:
+        if on_progress:
+            on_progress(value, message)
+
+    try:
+        progress(10, "正在读取审计 Excel")
+        validate_excel_upload(filename or "", content_type, content)
+        with trace.step("load_workbook"):
+            wb = openpyxl.load_workbook(io.BytesIO(content))
+        with trace.step("extract_rows"):
+            rows = _extract_rows(wb)
+        if not rows:
+            raise ValueError("Excel 中未找到有效数据行。")
+
+        prompt = _build_prompt(rows, doms)
+
+        from llm_audit.context import collect_traces
+        client = get_llm_client()
+
+        with collect_traces() as bucket:
+            progress(35, "模型 A 正在初步分类")
+            with trace.step("model_a_classify"):
+                from llm_audit import traced_complete
+                resp_a = traced_complete(
+                    client,
+                    scene="audit_classify",
+                    prompt_template_id="audit.classify.v1",
+                    model=AUDIT_CLASSIFY_MODEL,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0,
+                )
+                rows_a = _parse_llm_output(resp_a.choices[0].message.content or "", rows)
+
+            progress(70, "模型 B 正在交叉校验")
+            with trace.step("model_b_review"):
+                try:
+                    corrections = _call_review_llm(rows_a, doms)
+                except Exception:
+                    corrections = []
+
+            progress(90, "正在合并分类结果")
+            with trace.step("merge_results"):
+                merged = _merge_ab_results(rows_a, corrections)
+            return merged, list(bucket.ids)
+    finally:
+        trace.finish()
+
+
 # ── 路由 ──────────────────────────────────────────────────────────
 
 
@@ -368,6 +428,74 @@ async def analyze_audit(
         stage="AI 分析",
     )
     return {"rows": classified_rows, "total": len(classified_rows), "llm_trace_ids": llm_trace_ids}
+
+
+@router.post("/analyze-task")
+async def start_audit_analyze_task(
+    file: UploadFile = File(...),
+    domains: str = Form('["物业租赁","酒店公寓","工程领域","资产处置","历史遗留问题"]'),
+    db: DBSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    try:
+        doms = json.loads(domains)
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail=f"业务领域参数格式错误：{e}")
+
+    content = await file.read()
+    try:
+        validate_excel_upload(file.filename or "", file.content_type, content)
+    except UploadValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    filename = file.filename or ""
+    content_type = file.content_type
+    task = create_background_task(
+        db,
+        task_type="audit_analyze",
+        created_by=user.id,
+        message="已接收文件，等待分析",
+    )
+
+    def _worker(ctx, task_db: DBSession) -> dict:
+        task_user = task_db.query(User).filter(User.id == user.id).first()
+        if not task_user:
+            raise RuntimeError("发起用户不存在")
+        try:
+            classified_rows, llm_trace_ids = _run_audit_analysis(
+                content,
+                filename,
+                content_type,
+                doms,
+                task_user.id,
+                on_progress=lambda progress, message: ctx.update(progress=progress, message=message),
+            )
+            disagreement_count = sum(1 for r in classified_rows if r.get("disagreement"))
+            write_log(
+                task_db,
+                task_user,
+                "audit_analyze",
+                f"审计分析 {len(classified_rows)} 条，其中 {disagreement_count} 条存在分类分歧",
+                None,
+            )
+            notify_task_success(
+                task="审计问题分析",
+                summary=f"共 {len(classified_rows)} 条，{disagreement_count} 条存在分类分歧",
+                user=task_user,
+                stage="AI 分析",
+            )
+            return {"rows": classified_rows, "total": len(classified_rows), "llm_trace_ids": llm_trace_ids}
+        except Exception as exc:
+            notify_task_failure(
+                task="审计问题分析",
+                summary=str(exc)[:160],
+                user=task_user,
+                stage="AI 分析",
+            )
+            raise
+
+    submit_background_task(task.task_id, _worker)
+    return {"ok": True, "task_id": task.task_id}
 
 
 @router.post("/download")

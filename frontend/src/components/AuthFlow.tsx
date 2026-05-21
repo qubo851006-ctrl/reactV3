@@ -1,5 +1,5 @@
-import { useState, useRef } from 'react'
-import { processAuthRequest, recordAuthRequestLedger, downloadDocx, getErrorMessage, submitLlmFeedback } from '../api'
+import { useEffect, useState, useRef } from 'react'
+import { getBackgroundTask, startAuthRequestProcessTask, recordAuthRequestLedger, downloadDocx, getErrorMessage, submitLlmFeedback } from '../api'
 import { useNotifier } from './NotificationContext'
 
 function downloadXlsx(base64: string, filename: string) {
@@ -17,6 +17,10 @@ function downloadXlsx(base64: string, filename: string) {
   URL.revokeObjectURL(url)
 }
 import ReactMarkdown from 'react-markdown'
+
+function sleep(ms: number) {
+  return new Promise(resolve => window.setTimeout(resolve, ms))
+}
 
 interface Props {
   onComplete: (reply: string) => void
@@ -48,22 +52,59 @@ export default function AuthFlow({ onComplete, onCancel, visionModel = '' }: Pro
   const [drag, setDrag] = useState(false)
   const [activeTab, setActiveTab] = useState<'request' | 'letter'>('request')
   const [recordingLedger, setRecordingLedger] = useState(false)
+  const [taskId, setTaskId] = useState('')
+  const [taskProgress, setTaskProgress] = useState(0)
+  const [taskMessage, setTaskMessage] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
+  const mountedRef = useRef(true)
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
+
+  async function waitForTask(id: string) {
+    while (mountedRef.current) {
+      const task = await getBackgroundTask<AuthResult>(id)
+      if (!mountedRef.current) return
+      setTaskProgress(task.progress ?? 0)
+      setTaskMessage(task.message || '???????')
+
+      if (task.status === 'succeeded') {
+        if (!task.result) throw new Error('????????????????')
+        setResult(task.result)
+        notifySuccess('????????', '????????????????????')
+        return
+      }
+      if (task.status === 'failed' || task.status === 'cancelled') {
+        throw new Error(task.error || task.message || '????')
+      }
+      await sleep(1000)
+    }
+  }
 
   async function handleProcess() {
     if (!pdfFile) return
     setProcessing(true)
     setError('')
+    setTaskId('')
+    setTaskProgress(0)
+    setTaskMessage('????????')
     try {
-      const res = await processAuthRequest(pdfFile, visionModel)
-      setResult(res as AuthResult)
-      notifySuccess('授权请示生成完成', '授权请示和授权书已生成，可以预览或下载。')
+      const started = await startAuthRequestProcessTask(pdfFile, visionModel)
+      setTaskId(started.task_id)
+      await waitForTask(started.task_id)
     } catch (e: unknown) {
-      const message = getErrorMessage(e, '处理失败')
+      let message = getErrorMessage(e, '????')
+      try {
+        const json = JSON.parse(message) as { detail?: unknown }
+        message = typeof json.detail === 'string' ? json.detail : message
+      } catch { /* keep original */ }
       setError(message)
-      notifyError('授权请示生成失败', message)
+      notifyError('????????', message)
     } finally {
-      setProcessing(false)
+      if (mountedRef.current) setProcessing(false)
     }
   }
 
@@ -92,12 +133,22 @@ export default function AuthFlow({ onComplete, onCancel, visionModel = '' }: Pro
   if (processing && !result) {
     return (
       <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 my-3">
-        <div className="flex items-center gap-3 text-slate-300">
+        <div className="flex items-center gap-3 text-slate-300 mb-3">
           <div className="animate-spin w-5 h-5 border-2 border-indigo-400 border-t-transparent rounded-full" />
           <div>
-            <div className="text-sm">正在生成授权请示及授权书…</div>
-            <div className="text-xs text-slate-500 mt-0.5">提取字段 → AI起草 → 生成Word（请示 + 授权书）</div>
+            <div className="text-sm">{taskMessage || '????????????'}</div>
+            <div className="text-xs text-slate-500 mt-0.5">???? / AI ?? / ?? Word ??</div>
           </div>
+        </div>
+        <div className="h-2 rounded-full bg-slate-700 overflow-hidden">
+          <div
+            className="h-full rounded-full bg-indigo-500 transition-all duration-300"
+            style={{ width: `${Math.max(5, taskProgress)}%` }}
+          />
+        </div>
+        <div className="flex items-center justify-between text-[11px] text-slate-500 mt-1">
+          <span>{taskId ? `?????${taskId}` : '?????'}</span>
+          <span>{taskProgress}%</span>
         </div>
       </div>
     )

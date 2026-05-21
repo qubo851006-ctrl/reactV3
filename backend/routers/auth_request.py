@@ -13,6 +13,7 @@ from db import get_db
 from integrations.dingtalk import notify_task_failure, notify_task_success
 from models import User
 from routers.chat import load_history, save_history
+from task_runner import create_background_task, submit_background_task
 from config import AUTH_LEDGER_PATH
 from upload_validation import UploadValidationError, validate_pdf_upload
 from perf_trace import PerfTrace
@@ -24,6 +25,93 @@ class AuthLedgerRecordRequest(BaseModel):
     info: dict
     title: str
     session_id: str = ""
+
+
+def _run_auth_request_process(
+    pdf_bytes: bytes,
+    session_id: str,
+    vision_model: str,
+    user_id: int,
+    *,
+    on_progress=None,
+) -> dict:
+    import sys
+    sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+    from utils.auth_request_drafter import (
+        extract_approval_info,
+        draft_auth_documents,
+        save_as_docx,
+        save_auth_letter_as_docx,
+    )
+    from ledger_helpers import ocr_pdf_with_vision
+    import pdfplumber
+    from llm_audit.context import collect_traces
+
+    trace = PerfTrace("auth_request.process", user_id)
+
+    def progress(value: int, message: str) -> None:
+        if on_progress:
+            on_progress(value, message)
+
+    try:
+        with collect_traces() as bucket:
+            pdf_text = ""
+            progress(15, "正在解析呈批件 PDF")
+            with trace.step("pdf_text"):
+                with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+                    for page in pdf.pages:
+                        t = page.extract_text()
+                        if t:
+                            pdf_text += t + "\n"
+                pdf_text = pdf_text.strip()
+            if not pdf_text:
+                progress(30, "正在 OCR 识别扫描件")
+                with trace.step("ocr"):
+                    pdf_text = ocr_pdf_with_vision(pdf_bytes, model=vision_model)
+
+            progress(50, "正在提取授权字段")
+            with trace.step("extract_info"):
+                info = extract_approval_info(pdf_text)
+            progress(70, "正在起草授权请示和授权书")
+            with trace.step("draft_documents"):
+                docs = draft_auth_documents(info)
+            auth_content = docs["auth_content"]
+            letter_content = docs["letter_content"]
+
+            progress(85, "正在生成 Word 文件")
+            with trace.step("write_docx"):
+                with tempfile.NamedTemporaryFile(suffix=".docx", delete=False, prefix="授权请示_") as tmp:
+                    docx_path = tmp.name
+                save_as_docx(auth_content, docx_path)
+                with open(docx_path, "rb") as f:
+                    docx_b64 = base64.b64encode(f.read()).decode()
+                os.unlink(docx_path)
+
+            with trace.step("write_letter_docx"):
+                with tempfile.NamedTemporaryFile(suffix=".docx", delete=False, prefix="授权书_") as tmp:
+                    letter_path = tmp.name
+                save_auth_letter_as_docx(letter_content, letter_path)
+                with open(letter_path, "rb") as f:
+                    letter_b64 = base64.b64encode(f.read()).decode()
+                os.unlink(letter_path)
+
+            project_name = info.get("项目名称") or "授权请示"
+            title = "关于{}相关工作授权的请示".format(
+                project_name[:15] if len(project_name) > 15 else project_name
+            )
+
+            return {
+                "info": info,
+                "auth_content": auth_content,
+                "letter_content": letter_content,
+                "docx_b64": docx_b64,
+                "letter_b64": letter_b64,
+                "project_name": project_name,
+                "title": title,
+                "llm_trace_ids": list(bucket.ids),
+            }
+    finally:
+        trace.finish()
 
 
 @router.post("/process")
@@ -162,6 +250,82 @@ async def process_auth_request(
         "info": info,
         "llm_trace_ids": result.get("llm_trace_ids", []),
     }
+
+
+@router.post("/process-task")
+async def start_auth_request_process_task(
+    pdf_file: UploadFile = File(...),
+    session_id: str = Form(""),
+    vision_model: str = Form(""),
+    db: DBSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    pdf_bytes = await pdf_file.read()
+    try:
+        validate_pdf_upload(pdf_file.filename or "", pdf_file.content_type, pdf_bytes)
+    except UploadValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    task = create_background_task(
+        db,
+        task_type="auth_request_process",
+        created_by=user.id,
+        message="已接收文件，等待生成",
+    )
+
+    def _worker(ctx, task_db: DBSession) -> dict:
+        task_user = task_db.query(User).filter(User.id == user.id).first()
+        if not task_user:
+            raise RuntimeError("发起用户不存在")
+        try:
+            result = _run_auth_request_process(
+                pdf_bytes,
+                session_id,
+                vision_model,
+                task_user.id,
+                on_progress=lambda progress, message: ctx.update(progress=progress, message=message),
+            )
+            info = result["info"]
+            auth_content = result["auth_content"]
+            project_name = result["project_name"]
+            write_log(task_db, task_user, "auth_request_process", f"生成授权请示：{project_name}", None)
+            reply = "✅ 授权请示及授权书已生成！\n\n---\n\n{}".format(auth_content)
+            history = load_history(task_user.id, session_id)
+            history.append({"role": "assistant", "content": reply})
+            save_history(history, task_user.id, session_id)
+            notify_task_success(
+                task="授权请示识别",
+                summary=str(project_name)[:160],
+                user=task_user,
+                session_id=session_id,
+                stage="AI 生成",
+            )
+            return {
+                "content": auth_content,
+                "docx_base64": result["docx_b64"],
+                "filename": "授权请示_{}.docx".format(project_name[:20]),
+                "letter_content": result["letter_content"],
+                "letter_base64": result["letter_b64"],
+                "letter_filename": "授权书_{}.docx".format(project_name[:20]),
+                "ledger_updated": False,
+                "ledger_base64": None,
+                "ledger_filename": None,
+                "title": result["title"],
+                "info": info,
+                "llm_trace_ids": result.get("llm_trace_ids", []),
+            }
+        except Exception as exc:
+            notify_task_failure(
+                task="授权请示识别",
+                summary=str(exc)[:160],
+                user=task_user,
+                session_id=session_id,
+                stage="AI 生成",
+            )
+            raise
+
+    submit_background_task(task.task_id, _worker)
+    return {"ok": True, "task_id": task.task_id}
 
 
 @router.post("/record-ledger")
