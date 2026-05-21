@@ -10,7 +10,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { getErrorMessage, submitLlmFeedback } from '../src/api'
+import { getBackgroundTask, getErrorMessage, startLedgerMergeTask, submitLlmFeedback } from '../src/api'
 
 describe('getErrorMessage', () => {
   it('returns the Error.message for Error instances', () => {
@@ -106,5 +106,51 @@ describe('submitLlmFeedback', () => {
     ).resolves.toBeUndefined()
     // All 3 were attempted despite the middle one failing.
     expect(fetchSpy).toHaveBeenCalledTimes(3)
+  })
+})
+
+describe('background task API helpers', () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>
+
+  beforeEach(() => {
+    fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({
+        task_id: 'task_123',
+        type: 'ledger_merge',
+        status: 'succeeded',
+        progress: 100,
+        message: '完成',
+        result: { total_contract: 1 },
+        error: null,
+      }), { status: 200 }),
+    )
+  })
+
+  afterEach(() => {
+    fetchSpy.mockRestore()
+  })
+
+  it('starts ledger merge tasks through the async endpoint', async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true, task_id: 'task_123' }), { status: 200 }),
+    )
+    const file = new File([new Uint8Array([0x50, 0x4b])], 'contract.xlsx')
+
+    const result = await startLedgerMergeTask(file, null, null)
+
+    expect(result.task_id).toBe('task_123')
+    expect(fetchSpy).toHaveBeenCalledWith('/api/ledger-merge/merge-task', expect.objectContaining({
+      method: 'POST',
+      body: expect.any(FormData),
+    }))
+  })
+
+  it('fetches background task status by id', async () => {
+    const task = await getBackgroundTask('task_123')
+
+    expect(task.status).toBe('succeeded')
+    expect(fetchSpy).toHaveBeenCalledWith('/api/tasks/task_123', expect.objectContaining({
+      credentials: 'include',
+    }))
   })
 })
