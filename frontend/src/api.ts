@@ -129,6 +129,22 @@ export async function extractTraining(
   return r.json()
 }
 
+export async function startTrainingExtractTask(
+  noticePdf: File,
+  signinImg: File,
+  department: string,
+  visionModel: string,
+): Promise<{ ok: boolean; task_id: string }> {
+  const form = new FormData()
+  form.append('notice_pdf', noticePdf)
+  form.append('signin_img', signinImg)
+  form.append('department', department)
+  form.append('vision_model', visionModel)
+  const r = await apiFetch(`${BASE}/training/extract-task`, { method: 'POST', body: form })
+  if (!r.ok) throw new Error(await r.text())
+  return r.json()
+}
+
 export async function writeTraining(data: Omit<TrainingResult, 'excel_path' | 'confidence' | 'reflection_note'>) {
   const r = await apiFetch(`${BASE}/training/write`, {
     method: 'POST',

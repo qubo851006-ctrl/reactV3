@@ -17,6 +17,7 @@ from db import get_db
 from integrations.dingtalk import notify_task_failure, notify_task_success
 from models import User
 from routers.chat import load_history, save_history
+from task_runner import create_background_task, submit_background_task
 from upload_validation import UploadValidationError, validate_image_upload, validate_pdf_upload
 from config import DATA_ROOT
 from file_store import atomic_write_bytes, safe_child_path
@@ -268,6 +269,71 @@ async def extract_training(
         stage="AI 识别",
     )
     return {**result, "department": department or ""}
+
+
+@router.post("/extract-task")
+async def start_training_extract_task(
+    notice_pdf: UploadFile = File(...),
+    signin_img: UploadFile = File(...),
+    department: str = Form(""),
+    vision_model: str = Form(""),
+    db: DBSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    notice_bytes = await notice_pdf.read()
+    signin_bytes = await signin_img.read()
+    try:
+        notice_name = validate_pdf_upload(notice_pdf.filename or "", notice_pdf.content_type, notice_bytes)
+        signin_name = validate_image_upload(signin_img.filename or "", signin_img.content_type, signin_bytes)
+    except UploadValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    task = create_background_task(
+        db,
+        task_type="training_extract",
+        created_by=user.id,
+        message="已接收文件，等待识别",
+    )
+
+    def _worker(ctx, task_db: DBSession) -> dict:
+        task_user = task_db.query(User).filter(User.id == user.id).first()
+        if not task_user:
+            raise RuntimeError("发起用户不存在")
+        try:
+            ctx.update(progress=15, message="正在识别培训通知和签到表")
+            result = _run_training_extraction(
+                notice_bytes,
+                signin_bytes,
+                notice_name,
+                signin_name,
+                vision_model,
+            )
+            result = {**result, "department": department or ""}
+            write_log(
+                task_db,
+                task_user,
+                "training_extract",
+                f"识别培训记录：{result.get('topic') or notice_name}",
+                None,
+            )
+            notify_task_success(
+                task="培训信息识别",
+                summary=str(result.get("topic") or notice_name)[:160],
+                user=task_user,
+                stage="AI 识别",
+            )
+            return result
+        except Exception as exc:
+            notify_task_failure(
+                task="培训信息识别",
+                summary=str(exc)[:160],
+                user=task_user,
+                stage="AI 识别",
+            )
+            raise
+
+    submit_background_task(task.task_id, _worker)
+    return {"ok": True, "task_id": task.task_id}
 
 
 # ── 确认写入台账 ──────────────────────────────────────────────

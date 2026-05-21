@@ -1,5 +1,5 @@
-import { useState, useRef } from 'react'
-import { extractTraining, writeTraining, downloadTrainingExcel, getErrorMessage, submitLlmFeedback } from '../api'
+import { useEffect, useState, useRef } from 'react'
+import { getBackgroundTask, startTrainingExtractTask, writeTraining, downloadTrainingExcel, getErrorMessage, submitLlmFeedback } from '../api'
 import type { TrainingResult } from '../types'
 import { useNotifier } from './NotificationContext'
 
@@ -11,6 +11,10 @@ interface Props {
 
 type Step = 'upload' | 'dept' | 'processing' | 'confirm' | 'done'
 
+function sleep(ms: number) {
+  return new Promise(resolve => window.setTimeout(resolve, ms))
+}
+
 export default function TrainingFlow({ onComplete, onCancel, visionModel = '' }: Props) {
   const { notifySuccess, notifyError } = useNotifier()
   const [step, setStep] = useState<Step>('upload')
@@ -21,25 +25,62 @@ export default function TrainingFlow({ onComplete, onCancel, visionModel = '' }:
   const [edited, setEdited] = useState<TrainingResult | null>(null)
   const [error, setError] = useState('')
   const [writing, setWriting] = useState(false)
+  const [taskId, setTaskId] = useState('')
+  const [taskProgress, setTaskProgress] = useState(0)
+  const [taskMessage, setTaskMessage] = useState('')
   const deptRef = useRef<HTMLInputElement>(null)
+  const mountedRef = useRef(true)
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
 
   const canUpload = noticePdf && signinImg
+
+  async function waitForTask(id: string) {
+    while (mountedRef.current) {
+      const task = await getBackgroundTask<TrainingResult>(id)
+      if (!mountedRef.current) return
+      setTaskProgress(task.progress ?? 0)
+      setTaskMessage(task.message || '???????')
+
+      if (task.status === 'succeeded') {
+        if (!task.result) throw new Error('??????????????')
+        setExtracted(task.result)
+        setEdited({ ...task.result })
+        setStep('confirm')
+        notifySuccess('????????', '??????????????????')
+        return
+      }
+      if (task.status === 'failed' || task.status === 'cancelled') {
+        throw new Error(task.error || task.message || '????')
+      }
+      await sleep(1000)
+    }
+  }
 
   async function handleExtract() {
     if (!noticePdf || !signinImg) return
     setStep('processing')
     setError('')
+    setTaskId('')
+    setTaskProgress(0)
+    setTaskMessage('????????')
     try {
-      const res = await extractTraining(noticePdf, signinImg, department, visionModel)
-      setExtracted(res)
-      setEdited({ ...res })
-      setStep('confirm')
-      notifySuccess('培训统计识别完成', '已生成预览结果，请核对后写入统计表。')
+      const started = await startTrainingExtractTask(noticePdf, signinImg, department, visionModel)
+      setTaskId(started.task_id)
+      await waitForTask(started.task_id)
     } catch (e: unknown) {
-      const message = getErrorMessage(e, '处理失败')
+      let message = getErrorMessage(e, '????')
+      try {
+        const json = JSON.parse(message) as { detail?: unknown }
+        message = typeof json.detail === 'string' ? json.detail : message
+      } catch { /* keep original */ }
       setError(message)
       setStep('upload')
-      notifyError('培训统计识别失败', message)
+      notifyError('????????', message)
     }
   }
 
@@ -90,15 +131,26 @@ export default function TrainingFlow({ onComplete, onCancel, visionModel = '' }:
   if (step === 'processing') {
     return (
       <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 my-3">
-        <div className="flex items-center gap-3 text-slate-300">
-          <div className="animate-spin w-5 h-5 border-2 border-indigo-400 border-t-transparent rounded-full" />
-          <span>正在识别处理，请稍候…</span>
+        <div className="space-y-3 text-slate-300">
+          <div className="flex items-center gap-3">
+            <div className="w-5 h-5 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
+            <span>{taskMessage || '??????????'}</span>
+          </div>
+          <div className="h-2 rounded-full bg-slate-700 overflow-hidden">
+            <div
+              className="h-full rounded-full bg-indigo-500 transition-all duration-300"
+              style={{ width: `${Math.max(5, taskProgress)}%` }}
+            />
+          </div>
+          <div className="flex items-center justify-between text-[11px] text-slate-500">
+            <span>{taskId ? `?????${taskId}` : '?????'}</span>
+            <span>{taskProgress}%</span>
+          </div>
         </div>
       </div>
     )
   }
 
-  // ── 确认步骤 ────────────────────────────────────────────────
   if (step === 'confirm' && extracted && edited) {
     const confidenceLabel = extracted.confidence === 'high'
       ? <span className="text-green-400 text-xs">🟢 高置信度</span>
