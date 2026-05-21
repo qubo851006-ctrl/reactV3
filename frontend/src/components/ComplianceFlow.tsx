@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import {
   downloadComplianceLedger,
-  extractComplianceLedger,
+  getBackgroundTask,
   getComplianceResponsiblePersons,
   getErrorMessage,
+  startComplianceExtractTask,
   submitLlmFeedback,
   updateComplianceResponsiblePersons,
   writeComplianceLedger,
@@ -23,6 +24,10 @@ interface Props {
 type Step = 'upload' | 'processing' | 'review' | 'done'
 type Opinion = ComplianceReviewRow['review_opinion']
 type Implementation = ComplianceReviewRow['implementation']
+
+function sleep(ms: number) {
+  return new Promise(resolve => window.setTimeout(resolve, ms))
+}
 
 const OPINIONS: Opinion[] = ['同意', '不予同意', '建议补充完善']
 const IMPLEMENTATIONS: Implementation[] = ['/', '已按要求补充完善', '未见落实', '不涉及']
@@ -51,30 +56,71 @@ export default function ComplianceFlow({
   const [error, setError] = useState('')
   const [writing, setWriting] = useState(false)
   const [configOpen, setConfigOpen] = useState(false)
+  const [taskId, setTaskId] = useState('')
+  const [taskProgress, setTaskProgress] = useState(0)
+  const [taskMessage, setTaskMessage] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
+  const mountedRef = useRef(true)
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
+
+  function applyExtractResult(result: ComplianceItem, llmTraceIds: string[]) {
+    const normalised: ComplianceItem = {
+      ...result,
+      undertaking_department: result.undertaking_department || '?????',
+      background_materials: result.background_materials ?? [],
+      review_rows: result.review_rows?.length ? result.review_rows : [{ ...EMPTY_ROW }],
+    }
+    setItem(normalised)
+    setOriginalItem(normalised)
+    setTraceIds(llmTraceIds)
+    setStep('review')
+    notifySuccess('??????????', '???????????????????')
+  }
+
+  async function waitForTask(id: string) {
+    while (mountedRef.current) {
+      const task = await getBackgroundTask<{ item: ComplianceItem; llm_trace_ids?: string[] }>(id)
+      if (!mountedRef.current) return
+      setTaskProgress(task.progress ?? 0)
+      setTaskMessage(task.message || '???????')
+
+      if (task.status === 'succeeded') {
+        if (!task.result?.item) throw new Error('??????????????????')
+        applyExtractResult(task.result.item, task.result.llm_trace_ids ?? [])
+        return
+      }
+      if (task.status === 'failed' || task.status === 'cancelled') {
+        throw new Error(task.error || task.message || '????')
+      }
+      await sleep(1000)
+    }
+  }
 
   async function handleExtract() {
     if (!file) return
     setStep('processing')
     setError('')
+    setTaskId('')
+    setTaskProgress(0)
+    setTaskMessage('????????')
     try {
-      const { item: result, llm_trace_ids } = await extractComplianceLedger(file, visionModel)
-      const normalised: ComplianceItem = {
-        ...result,
-        undertaking_department: result.undertaking_department || '法务合规部',
-        background_materials: result.background_materials ?? [],
-        review_rows: result.review_rows?.length ? result.review_rows : [{ ...EMPTY_ROW }],
-      }
-      setItem(normalised)
-      setOriginalItem(normalised)  // snapshot for edit-detection
-      setTraceIds(llm_trace_ids)
-      setStep('review')
-      notifySuccess('合规审查台账提取完成', '已生成预览结果，请核对后写入累计台账。')
+      const started = await startComplianceExtractTask(file, visionModel)
+      setTaskId(started.task_id)
+      await waitForTask(started.task_id)
     } catch (e: unknown) {
-      const message = getErrorMessage(e, '提取失败')
+      let message = getErrorMessage(e, '????')
+      try {
+        const json = JSON.parse(message) as { detail?: unknown }
+        message = typeof json.detail === 'string' ? json.detail : message
+      } catch { /* keep original */ }
       setError(message)
       setStep('upload')
-      notifyError('合规审查台账提取失败', message)
+      notifyError('??????????', message)
     }
   }
 
@@ -130,12 +176,22 @@ export default function ComplianceFlow({
   if (step === 'processing') {
     return (
       <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 my-3">
-        <div className="flex items-center gap-3 text-slate-300">
+        <div className="flex items-center gap-3 text-slate-300 mb-3">
           <div className="animate-spin w-5 h-5 border-2 border-indigo-400 border-t-transparent rounded-full" />
           <div>
-            <div className="text-sm">正在提取合规审查台账信息…</div>
-            <div className="text-xs text-slate-500 mt-0.5">OA PDF 解析 / OCR → AI 抽取 → 生成预览</div>
+            <div className="text-sm">{taskMessage || '????????????'}</div>
+            <div className="text-xs text-slate-500 mt-0.5">OA PDF ?? / OCR / AI ?? / ????</div>
           </div>
+        </div>
+        <div className="h-2 rounded-full bg-slate-700 overflow-hidden">
+          <div
+            className="h-full rounded-full bg-indigo-500 transition-all duration-300"
+            style={{ width: `${Math.max(5, taskProgress)}%` }}
+          />
+        </div>
+        <div className="flex items-center justify-between text-[11px] text-slate-500 mt-1">
+          <span>{taskId ? `?????${taskId}` : '?????'}</span>
+          <span>{taskProgress}%</span>
         </div>
       </div>
     )

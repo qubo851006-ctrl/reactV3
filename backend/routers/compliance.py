@@ -18,6 +18,7 @@ from file_store import atomic_write_bytes, atomic_write_text, file_lock
 from integrations.dingtalk import notify_task_failure, notify_task_success
 from models import User
 from routers.chat import load_history, save_history
+from task_runner import create_background_task, submit_background_task
 from upload_validation import UploadValidationError, validate_pdf_upload
 from perf_trace import PerfTrace
 from utils.compliance_ledger import (
@@ -48,6 +49,40 @@ class ComplianceWriteRequest(BaseModel):
     session_id: str = ""
 
 
+def _run_compliance_extraction(
+    pdf_bytes: bytes,
+    safe_name: str,
+    vision_model: str,
+    user_id: int,
+    *,
+    on_progress=None,
+) -> tuple[dict[str, Any], list[str]]:
+    from llm_audit.context import collect_traces
+
+    trace = PerfTrace("compliance.extract", user_id)
+
+    def progress(value: int, message: str) -> None:
+        if on_progress:
+            on_progress(value, message)
+
+    try:
+        with collect_traces() as bucket:
+            progress(20, "正在解析合规审查 PDF")
+            with trace.step("extract_pdf_text"):
+                text = extract_pdf_text(pdf_bytes, safe_name, vision_model)
+            if not text.strip():
+                raise ValueError("未能从 PDF 中提取可识别文本")
+            progress(45, "正在读取部门负责人配置")
+            with trace.step("load_responsible_persons"):
+                persons = load_responsible_persons()
+            progress(70, "正在抽取合规审查信息")
+            with trace.step("extract_compliance_item"):
+                item = extract_compliance_item(text, persons)
+        return item, list(bucket.ids)
+    finally:
+        trace.finish()
+
+
 @router.get("/responsible-persons")
 def get_responsible_persons(_: User = Depends(get_current_user)):
     return {"persons": load_responsible_persons()}
@@ -75,25 +110,14 @@ async def extract_compliance(
     except UploadValidationError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    def _process() -> tuple[dict[str, Any], list[str]]:
-        from llm_audit.context import collect_traces
-        trace = PerfTrace("compliance.extract", user.id)
-        try:
-            with collect_traces() as bucket:
-                with trace.step("extract_pdf_text"):
-                    text = extract_pdf_text(pdf_bytes, safe_name, vision_model)
-                if not text.strip():
-                    raise ValueError("未能从 PDF 中提取可识别文本")
-                with trace.step("load_responsible_persons"):
-                    persons = load_responsible_persons()
-                with trace.step("extract_compliance_item"):
-                    item = extract_compliance_item(text, persons)
-            return item, list(bucket.ids)
-        finally:
-            trace.finish()
-
     try:
-        item, llm_trace_ids = await asyncio.to_thread(_process)
+        item, llm_trace_ids = await asyncio.to_thread(
+            _run_compliance_extraction,
+            pdf_bytes,
+            safe_name,
+            vision_model,
+            user.id,
+        )
     except Exception as e:
         notify_task_failure(
             task="合规审查信息识别",
@@ -111,6 +135,65 @@ async def extract_compliance(
         stage="AI 提取",
     )
     return {"item": item, "llm_trace_ids": llm_trace_ids}
+
+
+@router.post("/extract-task")
+async def start_compliance_extract_task(
+    pdf_file: UploadFile = File(...),
+    vision_model: str = Form(""),
+    db: DBSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    pdf_bytes = await pdf_file.read()
+    try:
+        safe_name = validate_pdf_upload(pdf_file.filename or "", pdf_file.content_type, pdf_bytes)
+    except UploadValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    task = create_background_task(
+        db,
+        task_type="compliance_extract",
+        created_by=user.id,
+        message="已接收文件，等待识别",
+    )
+
+    def _worker(ctx, task_db: DBSession) -> dict:
+        task_user = task_db.query(User).filter(User.id == user.id).first()
+        if not task_user:
+            raise RuntimeError("发起用户不存在")
+        try:
+            item, llm_trace_ids = _run_compliance_extraction(
+                pdf_bytes,
+                safe_name,
+                vision_model,
+                task_user.id,
+                on_progress=lambda progress, message: ctx.update(progress=progress, message=message),
+            )
+            write_log(
+                task_db,
+                task_user,
+                "compliance_extract",
+                f"提取合规审查台账：{item.get('title', safe_name)}",
+                None,
+            )
+            notify_task_success(
+                task="合规审查信息识别",
+                summary=str(item.get("title", safe_name))[:160],
+                user=task_user,
+                stage="AI 提取",
+            )
+            return {"item": item, "llm_trace_ids": llm_trace_ids}
+        except Exception as exc:
+            notify_task_failure(
+                task="合规审查信息识别",
+                summary=str(exc)[:160],
+                user=task_user,
+                stage="AI 提取",
+            )
+            raise
+
+    submit_background_task(task.task_id, _worker)
+    return {"ok": True, "task_id": task.task_id}
 
 
 @router.post("/write")

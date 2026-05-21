@@ -280,6 +280,18 @@ export async function extractComplianceLedger(
   return { item: d.item, llm_trace_ids: d.llm_trace_ids ?? [] }
 }
 
+export async function startComplianceExtractTask(
+  pdfFile: File,
+  visionModel: string,
+): Promise<{ ok: boolean; task_id: string }> {
+  const form = new FormData()
+  form.append('pdf_file', pdfFile)
+  form.append('vision_model', visionModel)
+  const r = await apiFetch(`${BASE}/compliance/extract-task`, { method: 'POST', body: form })
+  if (!r.ok) throw new Error(await r.text())
+  return r.json()
+}
+
 export async function writeComplianceLedger(item: ComplianceItem): Promise<{ ok: boolean; count: number; sequence: number; reply: string }> {
   const r = await apiFetch(`${BASE}/compliance/write`, {
     method: 'POST',
