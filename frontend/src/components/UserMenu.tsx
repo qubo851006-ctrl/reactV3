@@ -8,9 +8,10 @@ interface Props {
   onOpenAdmin: () => void
   onOpenLlmDashboard?: () => void
   onOpenDingTalkAdmin?: () => void
+  onOpenOpsHealth?: () => void
 }
 
-export default function UserMenu({ user, onLogout, onOpenAdmin, onOpenLlmDashboard, onOpenDingTalkAdmin }: Props) {
+export default function UserMenu({ user, onLogout, onOpenAdmin, onOpenLlmDashboard, onOpenDingTalkAdmin, onOpenOpsHealth }: Props) {
   const { notifyError, notifySuccess, sendTestNotification } = useNotifier()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -104,6 +105,15 @@ export default function UserMenu({ user, onLogout, onOpenAdmin, onOpenLlmDashboa
                 >
                   <span className="text-base">钉</span>
                   <span>测试钉钉通知</span>
+                </button>
+              )}
+              {onOpenOpsHealth && (
+                <button
+                  onClick={() => { onOpenOpsHealth(); setOpen(false) }}
+                  className="w-full text-left px-3 py-2.5 text-sm text-slate-300 hover:bg-slate-700/50 transition-colors flex items-center gap-2.5"
+                >
+                  <span className="text-base">Ops</span>
+                  <span>运维面板</span>
                 </button>
               )}
             </>

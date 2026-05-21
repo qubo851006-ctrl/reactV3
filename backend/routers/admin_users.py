@@ -1,19 +1,29 @@
 import hashlib
+import os
+import re
 import secrets
+import subprocess
 from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import text
 from sqlalchemy.orm import Session as DBSession
 
 from auth_utils import require_admin
-from db import get_db
+from db import engine, get_db
 from integrations.dingtalk import send_dingtalk_notification
 from integrations.dingtalk.enterprise import get_access_token
 from integrations.dingtalk.org_sync import sync_dingtalk_org
-from models import AuditLog, DingTalkSyncLog, NotificationLog, User, UserSession
+from llm_audit.db import get_audit_engine
+from models import AuditLog, BackgroundTask, DingTalkSyncLog, NotificationLog, User, UserSession
+from runtime_status import STARTED_AT
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
+ROOT_DIR = Path(__file__).resolve().parents[2]
+LOG_DIR = Path(os.getenv("V3_LOG_DIR", str(ROOT_DIR / "logs")))
+_SECRET_RE = re.compile(r"(?i)(secret|token|key|password|authorization|cookie)=([^\\s&]+)")
 
 
 def _active_sessions(u: User) -> int:
@@ -24,6 +34,81 @@ def _active_sessions(u: User) -> int:
         if not s.revoked_at
         and (s.expires_at.replace(tzinfo=timezone.utc) if s.expires_at.tzinfo is None else s.expires_at) > now
     )
+
+
+def _redact_log_line(line: str) -> str:
+    line = _SECRET_RE.sub(r"\1=***", line.strip())
+    return line[-500:]
+
+
+def _run_git(args: list[str]) -> str:
+    try:
+        result = subprocess.run(
+            ["git", *args],
+            cwd=ROOT_DIR,
+            text=True,
+            capture_output=True,
+            timeout=2,
+            check=False,
+        )
+        return (result.stdout or result.stderr).strip()
+    except Exception:
+        return ""
+
+
+def _check_sqlalchemy_engine(db_engine) -> dict:
+    try:
+        with db_engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        return {"ok": True, "backend": db_engine.url.get_backend_name(), "error": ""}
+    except Exception as exc:
+        backend = getattr(getattr(db_engine, "url", None), "get_backend_name", lambda: "unknown")()
+        return {"ok": False, "backend": backend, "error": str(exc)[:300]}
+
+
+def _recent_error_logs(limit: int = 20) -> list[dict]:
+    patterns = ["*.err.log", "*.log"]
+    files: list[Path] = []
+    for pattern in patterns:
+        files.extend(LOG_DIR.glob(pattern))
+    files = sorted({p for p in files if p.is_file()}, key=lambda p: p.stat().st_mtime, reverse=True)[:6]
+    entries: list[dict] = []
+    markers = ("ERROR", "Traceback", "Exception", "failed", "失败", "[E]")
+    for path in files:
+        try:
+            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()[-300:]
+        except Exception:
+            continue
+        for line in reversed(lines):
+            if any(marker in line for marker in markers):
+                entries.append({
+                    "file": path.name,
+                    "line": _redact_log_line(line),
+                    "modified_at": datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat(),
+                })
+                if len(entries) >= limit:
+                    return entries
+    return entries
+
+
+def _env_flag(name: str) -> bool:
+    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _configured(name: str) -> bool:
+    return bool(os.getenv(name, "").strip())
+
+
+def _read_app_version() -> str:
+    if os.getenv("V3_APP_VERSION"):
+        return os.getenv("V3_APP_VERSION", "")
+    version_file = ROOT_DIR / "frontend" / "src" / "versionHistory.ts"
+    try:
+        text_body = version_file.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return ""
+    match = re.search(r"version:\s*'([^']+)'", text_body)
+    return match.group(1) if match else ""
 
 
 @router.get("/users")
@@ -49,6 +134,69 @@ def list_users(db: DBSession = Depends(get_db), _: User = Depends(require_admin)
             }
             for u in users
         ]
+    }
+
+
+@router.get("/ops/health")
+def ops_health(db: DBSession = Depends(get_db), _: User = Depends(require_admin)):
+    main_db = _check_sqlalchemy_engine(engine)
+    audit_engine = get_audit_engine()
+    audit_db = (
+        _check_sqlalchemy_engine(audit_engine)
+        if audit_engine is not None
+        else {"ok": False, "backend": "not_configured", "error": "LLM_AUDIT_DATABASE_URL not configured"}
+    )
+    failed_tasks = (
+        db.query(BackgroundTask)
+        .filter(BackgroundTask.status == "failed")
+        .order_by(BackgroundTask.finished_at.desc().nullslast(), BackgroundTask.updated_at.desc())
+        .limit(10)
+        .all()
+    )
+    return {
+        "version": {
+            "app_version": _read_app_version(),
+            "branch": _run_git(["branch", "--show-current"]) or "unknown",
+            "commit": _run_git(["rev-parse", "--short", "HEAD"]) or "unknown",
+            "commit_full": _run_git(["rev-parse", "HEAD"]) or "unknown",
+            "commit_time": _run_git(["log", "-1", "--format=%cI"]) or "",
+        },
+        "runtime": {
+            "started_at": STARTED_AT.isoformat(),
+            "server_time": datetime.now(timezone.utc).isoformat(),
+        },
+        "databases": {
+            "main": main_db,
+            "llm_audit": audit_db,
+        },
+        "dingtalk": {
+            "notify_enabled": _env_flag("DINGTALK_NOTIFY_ENABLED"),
+            "webhook_url_configured": _configured("DINGTALK_WEBHOOK_URL"),
+            "webhook_secret_configured": _configured("DINGTALK_WEBHOOK_SECRET"),
+            "enterprise_enabled": _env_flag("DINGTALK_ENTERPRISE_ENABLED"),
+            "work_notice_enabled": _env_flag("DINGTALK_WORK_NOTICE_ENABLED"),
+            "org_sync_enabled": _env_flag("DINGTALK_ORG_SYNC_ENABLED"),
+            "sso_enabled": _env_flag("DINGTALK_SSO_ENABLED"),
+            "corp_id_configured": _configured("DINGTALK_CORP_ID"),
+            "app_key_configured": _configured("DINGTALK_APP_KEY"),
+            "app_secret_configured": _configured("DINGTALK_APP_SECRET"),
+            "agent_id_configured": _configured("DINGTALK_AGENT_ID"),
+        },
+        "recent_errors": _recent_error_logs(),
+        "recent_failed_tasks": [
+            {
+                "task_id": task.task_id,
+                "type": task.type,
+                "message": task.message,
+                "error": task.error,
+                "created_by": task.created_by,
+                "created_at": task.created_at,
+                "started_at": task.started_at,
+                "finished_at": task.finished_at,
+                "updated_at": task.updated_at,
+            }
+            for task in failed_tasks
+        ],
     }
 
 

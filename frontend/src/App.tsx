@@ -22,6 +22,7 @@ import UserMenu from './components/UserMenu'
 import UserAdminPanel from './components/UserAdminPanel'
 import AdminLLMDashboard from './components/AdminLLMDashboard'
 import DingTalkAdminPanel from './components/DingTalkAdminPanel'
+import OpsHealthPanel from './components/OpsHealthPanel'
 import { APP_TITLE } from './appMeta'
 import ModelSelect from './components/ModelSelect'
 import {
@@ -90,6 +91,7 @@ export default function App() {
   const [adminOpen, setAdminOpen] = useState(false)
   const [llmDashboardOpen, setLlmDashboardOpen] = useState(false)
   const [dingtalkAdminOpen, setDingtalkAdminOpen] = useState(false)
+  const [opsHealthOpen, setOpsHealthOpen] = useState(false)
   const [sessions, setSessions] = useState<SessionMeta[]>([])
   const [currentSessionId, setCurrentSessionId] = useState<string>('')
   const currentSessionIdRef = useRef<string>('')
@@ -387,6 +389,7 @@ export default function App() {
               onOpenAdmin={() => setAdminOpen(true)}
               onOpenLlmDashboard={() => setLlmDashboardOpen(true)}
               onOpenDingTalkAdmin={() => setDingtalkAdminOpen(true)}
+              onOpenOpsHealth={() => setOpsHealthOpen(true)}
             />
           </div>
         </div>
@@ -397,6 +400,7 @@ export default function App() {
             <UserAdminPanel open={adminOpen} onClose={() => setAdminOpen(false)} currentUser={user} />
             <AdminLLMDashboard open={llmDashboardOpen} onClose={() => setLlmDashboardOpen(false)} />
             <DingTalkAdminPanel open={dingtalkAdminOpen} onClose={() => setDingtalkAdminOpen(false)} />
+            <OpsHealthPanel open={opsHealthOpen} onClose={() => setOpsHealthOpen(false)} />
           </>
         )}
 
