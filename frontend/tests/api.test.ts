@@ -10,7 +10,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { getBackgroundTask, getErrorMessage, listBackgroundTasks, startComplianceExtractTask, startLedgerExtractTask, startLedgerMergeTask, startTrainingExtractTask, submitLlmFeedback } from '../src/api'
+import { getBackgroundTask, getErrorMessage, listBackgroundTasks, startAuditAnalyzeTask, startAuthRequestProcessTask, startComplianceExtractTask, startLedgerExtractTask, startLedgerMergeTask, startTrainingExtractTask, submitLlmFeedback } from '../src/api'
 
 describe('getErrorMessage', () => {
   it('returns the Error.message for Error instances', () => {
@@ -186,6 +186,36 @@ describe('background task API helpers', () => {
 
     expect(result.task_id).toBe('task_compliance')
     expect(fetchSpy).toHaveBeenCalledWith('/api/compliance/extract-task', expect.objectContaining({
+      method: 'POST',
+      body: expect.any(FormData),
+    }))
+  })
+
+  it('starts audit analyze tasks through the async endpoint', async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true, task_id: 'task_audit' }), { status: 200 }),
+    )
+    const file = new File([new Uint8Array([0x50, 0x4b])], 'audit.xlsx')
+
+    const result = await startAuditAnalyzeTask(file, ['工程领域'])
+
+    expect(result.task_id).toBe('task_audit')
+    expect(fetchSpy).toHaveBeenCalledWith('/api/audit/analyze-task', expect.objectContaining({
+      method: 'POST',
+      body: expect.any(FormData),
+    }))
+  })
+
+  it('starts auth request process tasks through the async endpoint', async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true, task_id: 'task_auth' }), { status: 200 }),
+    )
+    const file = new File([new Uint8Array([0x25, 0x50, 0x44, 0x46])], 'auth.pdf', { type: 'application/pdf' })
+
+    const result = await startAuthRequestProcessTask(file, 'vision-test')
+
+    expect(result.task_id).toBe('task_auth')
+    expect(fetchSpy).toHaveBeenCalledWith('/api/auth-request/process-task', expect.objectContaining({
       method: 'POST',
       body: expect.any(FormData),
     }))
