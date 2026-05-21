@@ -32,6 +32,7 @@ export default function LedgerFlow({ onComplete, onCancel, visionModel = '' }: P
   const inputRef = useRef<HTMLInputElement>(null)
   const logRef = useRef<HTMLDivElement>(null)
   const mountedRef = useRef(true)
+  const lastLogMessageRef = useRef('')
 
   useEffect(() => {
     return () => {
@@ -53,9 +54,13 @@ export default function LedgerFlow({ onComplete, onCancel, visionModel = '' }: P
       const task = await getBackgroundTask<LedgerPreview>(id)
       if (!mountedRef.current) return
       setTaskProgress(task.progress ?? 0)
-      setTaskMessage(task.message || '后台任务处理中')
-      setLogs(prev => [...prev, task.message || '后台任务处理中'])
-      setTimeout(() => logRef.current?.scrollTo(0, logRef.current.scrollHeight), 50)
+      const message = task.message || '后台任务处理中'
+      setTaskMessage(message)
+      if (message !== lastLogMessageRef.current) {
+        lastLogMessageRef.current = message
+        setLogs(prev => [...prev, message])
+        setTimeout(() => logRef.current?.scrollTo(0, logRef.current.scrollHeight), 50)
+      }
 
       if (task.status === 'succeeded') {
         if (!task.result) throw new Error('任务完成，但没有返回案件预览数据')
@@ -80,6 +85,7 @@ export default function LedgerFlow({ onComplete, onCancel, visionModel = '' }: P
     setTaskId('')
     setTaskProgress(0)
     setTaskMessage('正在提交识别任务')
+    lastLogMessageRef.current = ''
     try {
       const started = await startLedgerExtractTask(files, visionModel)
       setTaskId(started.task_id)
