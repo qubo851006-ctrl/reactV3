@@ -62,7 +62,20 @@ def health():
 _FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
 if _FRONTEND_DIST.exists():
     app.mount("/assets", StaticFiles(directory=str(_FRONTEND_DIST / "assets")), name="assets")
+    _FRONTEND_DIST_RESOLVED = _FRONTEND_DIST.resolve()
 
     @app.get("/{full_path:path}")
     def serve_frontend(full_path: str):
+        # dist 根目录下的真实静态文件（airchina-*.png / favicon.svg / icons.svg 等）
+        # 必须先于 SPA fallback 处理，否则会被当作 SPA 路由返回 index.html。
+        if full_path:
+            try:
+                candidate = (_FRONTEND_DIST / full_path).resolve()
+                # 防越权：拒绝路径穿越（如 ../etc/passwd）
+                candidate.relative_to(_FRONTEND_DIST_RESOLVED)
+                if candidate.is_file():
+                    return FileResponse(str(candidate))
+            except (ValueError, OSError):
+                pass
+        # 其他未匹配的路径走 SPA fallback
         return FileResponse(str(_FRONTEND_DIST / "index.html"))
