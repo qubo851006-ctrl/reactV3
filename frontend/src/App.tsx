@@ -22,7 +22,7 @@ import UserMenu from './components/UserMenu'
 import UserAdminPanel from './components/UserAdminPanel'
 import AdminLLMDashboard from './components/AdminLLMDashboard'
 import DingTalkAdminPanel from './components/DingTalkAdminPanel'
-import OpsHealthPanel from './components/OpsHealthPanel'
+import AdminCenterPanel from './components/AdminCenterPanel'
 import { APP_TITLE } from './appMeta'
 import ModelSelect from './components/ModelSelect'
 import {
@@ -89,9 +89,9 @@ export default function App() {
   const [creatingSession, setCreatingSession] = useState(false)
   const [versionOpen, setVersionOpen] = useState(false)
   const [adminOpen, setAdminOpen] = useState(false)
+  const [adminCenterOpen, setAdminCenterOpen] = useState(false)
   const [llmDashboardOpen, setLlmDashboardOpen] = useState(false)
   const [dingtalkAdminOpen, setDingtalkAdminOpen] = useState(false)
-  const [opsHealthOpen, setOpsHealthOpen] = useState(false)
   const [sessions, setSessions] = useState<SessionMeta[]>([])
   const [currentSessionId, setCurrentSessionId] = useState<string>('')
   const currentSessionIdRef = useRef<string>('')
@@ -386,10 +386,7 @@ export default function App() {
             <UserMenu
               user={user}
               onLogout={onLogout}
-              onOpenAdmin={() => setAdminOpen(true)}
-              onOpenLlmDashboard={() => setLlmDashboardOpen(true)}
-              onOpenDingTalkAdmin={() => setDingtalkAdminOpen(true)}
-              onOpenOpsHealth={() => setOpsHealthOpen(true)}
+              onOpenAdmin={() => setAdminCenterOpen(true)}
             />
           </div>
         </div>
@@ -397,10 +394,16 @@ export default function App() {
         <VersionPanel open={versionOpen} onClose={() => setVersionOpen(false)} />
         {user.role === 'admin' && (
           <>
+            <AdminCenterPanel
+              open={adminCenterOpen}
+              onClose={() => setAdminCenterOpen(false)}
+              onOpenUsers={() => setAdminOpen(true)}
+              onOpenDingTalk={() => setDingtalkAdminOpen(true)}
+              onOpenAiQuality={() => setLlmDashboardOpen(true)}
+            />
             <UserAdminPanel open={adminOpen} onClose={() => setAdminOpen(false)} currentUser={user} />
             <AdminLLMDashboard open={llmDashboardOpen} onClose={() => setLlmDashboardOpen(false)} />
             <DingTalkAdminPanel open={dingtalkAdminOpen} onClose={() => setDingtalkAdminOpen(false)} />
-            <OpsHealthPanel open={opsHealthOpen} onClose={() => setOpsHealthOpen(false)} />
           </>
         )}
 

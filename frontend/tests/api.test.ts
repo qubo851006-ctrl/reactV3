@@ -10,7 +10,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { getBackgroundTask, getErrorMessage, startLedgerMergeTask, submitLlmFeedback } from '../src/api'
+import { getBackgroundTask, getErrorMessage, listBackgroundTasks, startLedgerMergeTask, submitLlmFeedback } from '../src/api'
 
 describe('getErrorMessage', () => {
   it('returns the Error.message for Error instances', () => {
@@ -150,6 +150,19 @@ describe('background task API helpers', () => {
 
     expect(task.status).toBe('succeeded')
     expect(fetchSpy).toHaveBeenCalledWith('/api/tasks/task_123', expect.objectContaining({
+      credentials: 'include',
+    }))
+  })
+
+  it('lists background tasks', async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(JSON.stringify({ tasks: [{ task_id: 'task_1', status: 'queued' }] }), { status: 200 }),
+    )
+
+    const tasks = await listBackgroundTasks(25)
+
+    expect(tasks).toHaveLength(1)
+    expect(fetchSpy).toHaveBeenCalledWith('/api/tasks?limit=25', expect.objectContaining({
       credentials: 'include',
     }))
   })

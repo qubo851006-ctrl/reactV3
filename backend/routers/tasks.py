@@ -52,6 +52,20 @@ def get_task(
     return serialize_task(task)
 
 
+@router.get("")
+def list_tasks(
+    limit: int = 50,
+    db: DBSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    safe_limit = max(1, min(200, int(limit or 50)))
+    query = db.query(BackgroundTask).order_by(BackgroundTask.created_at.desc())
+    if user.role != "admin":
+        query = query.filter(BackgroundTask.created_by == user.id)
+    tasks = query.limit(safe_limit).all()
+    return {"tasks": [serialize_task(task) for task in tasks]}
+
+
 @router.get("/{task_id}/events")
 async def stream_task_events(
     task_id: str,

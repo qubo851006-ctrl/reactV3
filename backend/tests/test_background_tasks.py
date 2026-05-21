@@ -70,6 +70,19 @@ class BackgroundTaskEndpointTests(unittest.TestCase):
         self.assertEqual(data["status"], "queued")
         self.assertEqual(data["message"], "queued")
 
+    def test_admin_can_list_background_tasks(self):
+        from task_runner import create_background_task
+
+        with self.SessionLocal() as db:
+            create_background_task(db, task_type="ledger_merge", created_by=1, message="queued")
+
+        response = self.client.get("/api/tasks?limit=10")
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(len(data["tasks"]), 1)
+        self.assertEqual(data["tasks"][0]["type"], "ledger_merge")
+
     def test_ledger_merge_task_endpoint_creates_queued_task(self):
         from models import BackgroundTask
 

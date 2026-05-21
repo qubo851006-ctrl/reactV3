@@ -347,6 +347,13 @@ export async function getBackgroundTask<T = unknown>(taskId: string): Promise<Ba
   return r.json()
 }
 
+export async function listBackgroundTasks<T = unknown>(limit = 50): Promise<BackgroundTask<T>[]> {
+  const r = await apiFetch(`${BASE}/tasks?limit=${encodeURIComponent(String(limit))}`)
+  if (!r.ok) throw new Error(await r.text())
+  const d = await r.json() as { tasks?: BackgroundTask<T>[] }
+  return d.tasks ?? []
+}
+
 export function downloadMergedExcel(resultId = '') {
   const suffix = resultId ? `?result_id=${encodeURIComponent(resultId)}` : ''
   window.open(`${BASE}/ledger-merge/download${suffix}`, '_blank')
