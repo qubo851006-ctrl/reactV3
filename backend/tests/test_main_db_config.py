@@ -44,6 +44,11 @@ class MainDatabaseConfigTests(unittest.TestCase):
         finally:
             engine.dispose()
 
+    def test_main_session_does_not_expire_objects_on_commit(self):
+        import db
+
+        self.assertFalse(db.SessionLocal.kw["expire_on_commit"])
+
 
 if __name__ == "__main__":
     unittest.main()

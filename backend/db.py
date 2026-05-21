@@ -59,7 +59,7 @@ def build_engine(url: str | None = None) -> Engine:
 
 
 engine = build_engine()
-SessionLocal = sessionmaker(bind=engine)
+SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 
 
 class Base(DeclarativeBase):
