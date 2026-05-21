@@ -106,6 +106,27 @@ class BackgroundTaskEndpointTests(unittest.TestCase):
             self.assertEqual(task.status, "queued")
             self.assertEqual(task.created_by, 1)
 
+    def test_training_extract_task_endpoint_creates_queued_task(self):
+        from models import BackgroundTask
+
+        files = {
+            "notice_pdf": ("notice.pdf", b"%PDF-1.4\nminimal", "application/pdf"),
+            "signin_img": ("signin.jpg", b"\xff\xd8\xffminimal", "image/jpeg"),
+        }
+        data = {"department": "legal", "vision_model": "vision-test"}
+        with patch("routers.training.submit_background_task") as submit:
+            response = self.client.post("/api/training/extract-task", files=files, data=data)
+
+        self.assertEqual(response.status_code, 200)
+        task_id = response.json()["task_id"]
+        submit.assert_called_once()
+
+        with self.SessionLocal() as db:
+            task = db.query(BackgroundTask).filter(BackgroundTask.task_id == task_id).one()
+            self.assertEqual(task.type, "training_extract")
+            self.assertEqual(task.status, "queued")
+            self.assertEqual(task.created_by, 1)
+
     def test_task_runner_persists_success_result(self):
         from models import BackgroundTask
         from task_runner import _run_task, create_background_task

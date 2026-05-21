@@ -10,7 +10,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { getBackgroundTask, getErrorMessage, listBackgroundTasks, startLedgerMergeTask, submitLlmFeedback } from '../src/api'
+import { getBackgroundTask, getErrorMessage, listBackgroundTasks, startLedgerMergeTask, startTrainingExtractTask, submitLlmFeedback } from '../src/api'
 
 describe('getErrorMessage', () => {
   it('returns the Error.message for Error instances', () => {
@@ -140,6 +140,22 @@ describe('background task API helpers', () => {
 
     expect(result.task_id).toBe('task_123')
     expect(fetchSpy).toHaveBeenCalledWith('/api/ledger-merge/merge-task', expect.objectContaining({
+      method: 'POST',
+      body: expect.any(FormData),
+    }))
+  })
+
+  it('starts training extract tasks through the async endpoint', async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true, task_id: 'task_training' }), { status: 200 }),
+    )
+    const notice = new File([new Uint8Array([0x25, 0x50, 0x44, 0x46])], 'notice.pdf', { type: 'application/pdf' })
+    const signin = new File([new Uint8Array([0xff, 0xd8, 0xff])], 'signin.jpg', { type: 'image/jpeg' })
+
+    const result = await startTrainingExtractTask(notice, signin, 'legal', 'vision-test')
+
+    expect(result.task_id).toBe('task_training')
+    expect(fetchSpy).toHaveBeenCalledWith('/api/training/extract-task', expect.objectContaining({
       method: 'POST',
       body: expect.any(FormData),
     }))
