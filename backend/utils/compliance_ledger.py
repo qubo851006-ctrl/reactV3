@@ -108,11 +108,37 @@ def _normalize_implementation(value: Any, opinion_text: str) -> str:
     return "/"
 
 
+_PROCEDURAL_AGREE_RE = re.compile(
+    r"^(同意|拟同意)[，。,.\s]*(建议|请)?\s*(提交|提请|报|上报)[^。]{0,30}(会议|审议)[。.\s]*$"
+)
+
+
+def _is_pure_procedural_agreement(opinion_text: str) -> bool:
+    """识别"拟同意，建议提交XX会议审议"这类纯程序性同意。
+
+    这类意见只是把事项推到下一道程序，没有实质性合规审查内容；按业务规则
+    台账"具体意见描述"列应为空（/）。判断条件：
+      1. 归类为"同意"
+      2. 通篇只有"同意/拟同意 + 提交/提请会议审议"这一句，无其他实质性补充
+      3. 单段（不含多句换行/多段）
+    """
+    text = re.sub(r"\s+", "", opinion_text or "")
+    if not text:
+        return False
+    if normalize_review_opinion(opinion_text) != "同意":
+        return False
+    return bool(_PROCEDURAL_AGREE_RE.match(text))
+
+
 def _detail_for_opinion(item: dict[str, Any]) -> str:
     detail = _clean_text(item.get("detail"), "")
+    opinion_text = _clean_text(item.get("opinion_text"), "")
+    # 业务规则：纯程序性同意意见，detail 强制为 "/"
+    # （即使 LLM 提取出 detail 内容，也应清空，因为这类意见没有实质性审查信息）
+    if _is_pure_procedural_agreement(opinion_text):
+        return "/"
     if detail:
         return detail
-    opinion_text = _clean_text(item.get("opinion_text"), "")
     if normalize_review_opinion(opinion_text) == "同意":
         if len(opinion_text) > 20:
             return opinion_text
@@ -422,6 +448,30 @@ def _fix_chief_opinion_from_text(raw: dict[str, Any], text: str) -> dict[str, An
     if time:
         next_chief["time"] = time
     next_raw["chief"] = next_chief
+
+    # 同步修正 approval_entries 里胡鹏斌那条，否则下游 _apply_approval_entries
+    # 会用未修正的 approval_entries 覆盖 chief，让本次 fix 失效（见
+    # debug-last.json: chief_after_fix 已修正但 final_review_rows[0].detail
+    # 仍是修正前的两段合并）。
+    raw_entries = next_raw.get("approval_entries")
+    if isinstance(raw_entries, list):
+        synced_entries = []
+        for entry in raw_entries:
+            if not isinstance(entry, dict):
+                synced_entries.append(entry)
+                continue
+            person = _normalize_person_name(entry.get("person") or entry.get("signer"))
+            if person == CHIEF_COMPLIANCE_PERSON:
+                synced = dict(entry)
+                synced["opinion_text"] = extracted_opinion
+                synced["detail"] = ""
+                if time:
+                    synced["time"] = time
+                synced_entries.append(synced)
+            else:
+                synced_entries.append(entry)
+        next_raw["approval_entries"] = synced_entries
+
     return next_raw
 
 
