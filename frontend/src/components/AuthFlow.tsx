@@ -56,7 +56,7 @@ interface ExtractTaskResult {
 
 const fieldGroups = [
   {
-    title: '附件1',
+    title: '依据文件',
     key: 'attachment1',
     fields: [
       ['title', '文件标题'],
@@ -67,7 +67,7 @@ const fieldGroups = [
     ],
   },
   {
-    title: '附件2',
+    title: '授权委托书',
     key: 'attachment2',
     fields: [
       ['authorization_no', '授权编号'],
@@ -99,6 +99,7 @@ export default function AuthFlow({ onComplete, onCancel, visionModel = '' }: Pro
   const [ledgerBase64, setLedgerBase64] = useState<string | null>(null)
   const [ledgerFilename, setLedgerFilename] = useState<string | null>(null)
   const [recordingLedger, setRecordingLedger] = useState(false)
+  const [dragTarget, setDragTarget] = useState<'basis' | 'auth' | null>(null)
   const [inputs, setInputs] = useState<AuthUserInputs>({
     auth_mode: 'direct',
     transfer_subject: '',
@@ -225,8 +226,8 @@ export default function AuthFlow({ onComplete, onCancel, visionModel = '' }: Pro
         <div className="flex items-center gap-3 text-slate-300 mb-3">
           <div className="animate-spin w-5 h-5 border-2 border-indigo-400 border-t-transparent rounded-full" />
           <div>
-            <div className="text-sm">{taskMessage || '正在提取附件字段'}</div>
-            <div className="text-xs text-slate-500 mt-0.5">附件1 / 附件2 / OCR 兜底</div>
+            <div className="text-sm">{taskMessage || '正在提取材料字段'}</div>
+            <div className="text-xs text-slate-500 mt-0.5">依据文件 / 授权委托书 / OCR 兜底</div>
           </div>
         </div>
         <div className="h-2 rounded-full bg-slate-700 overflow-hidden">
@@ -245,7 +246,7 @@ export default function AuthFlow({ onComplete, onCancel, visionModel = '' }: Pro
       <div className="flex items-center justify-between gap-3 mb-5">
         <div>
           <div className="text-sm font-semibold text-slate-200">授权请示起草</div>
-          <div className="text-xs text-slate-500 mt-0.5">附件提取、人工补填、正文确认、下载后自动写台账</div>
+          <div className="text-xs text-slate-500 mt-0.5">材料提取、人工补填、正文确认、下载后自动写台账</div>
         </div>
         <div className="text-xs text-slate-500">步骤 {step === 'upload' ? 1 : step === 'review' ? 2 : step === 'preview' ? 3 : 4}/4</div>
       </div>
@@ -258,20 +259,36 @@ export default function AuthFlow({ onComplete, onCancel, visionModel = '' }: Pro
             <button
               type="button"
               onClick={() => input1Ref.current?.click()}
-              className="text-left border border-dashed border-slate-600 hover:border-slate-500 rounded-xl p-4 transition-colors"
+              onDragOver={e => { e.preventDefault(); setDragTarget('basis') }}
+              onDragLeave={() => setDragTarget(null)}
+              onDrop={e => {
+                e.preventDefault()
+                setDragTarget(null)
+                const file = e.dataTransfer.files?.[0]
+                if (file) setAttachment1(file)
+              }}
+              className={`text-left border border-dashed rounded-xl p-4 transition-colors ${dragTarget === 'basis' ? 'border-indigo-400 bg-indigo-500/10' : 'border-slate-600 hover:border-slate-500'}`}
             >
               <input ref={input1Ref} type="file" accept=".pdf" className="hidden" onChange={e => e.target.files?.[0] && setAttachment1(e.target.files[0])} />
-              <div className="text-sm text-slate-300">附件1：依据文件 PDF</div>
-              <div className="text-xs text-slate-500 mt-2 truncate">{attachment1 ? attachment1.name : '点击选择 PDF'}</div>
+              <div className="text-sm text-slate-300">依据文件 PDF</div>
+              <div className="text-xs text-slate-500 mt-2 truncate">{attachment1 ? attachment1.name : '点击选择或拖拽 PDF'}</div>
             </button>
             <button
               type="button"
               onClick={() => input2Ref.current?.click()}
-              className="text-left border border-dashed border-slate-600 hover:border-slate-500 rounded-xl p-4 transition-colors"
+              onDragOver={e => { e.preventDefault(); setDragTarget('auth') }}
+              onDragLeave={() => setDragTarget(null)}
+              onDrop={e => {
+                e.preventDefault()
+                setDragTarget(null)
+                const file = e.dataTransfer.files?.[0]
+                if (file) setAttachment2(file)
+              }}
+              className={`text-left border border-dashed rounded-xl p-4 transition-colors ${dragTarget === 'auth' ? 'border-indigo-400 bg-indigo-500/10' : 'border-slate-600 hover:border-slate-500'}`}
             >
               <input ref={input2Ref} type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={e => e.target.files?.[0] && setAttachment2(e.target.files[0])} />
-              <div className="text-sm text-slate-300">附件2：授权委托书</div>
-              <div className="text-xs text-slate-500 mt-2 truncate">{attachment2 ? attachment2.name : '支持 PDF / DOC / DOCX'}</div>
+              <div className="text-sm text-slate-300">授权委托书</div>
+              <div className="text-xs text-slate-500 mt-2 truncate">{attachment2 ? attachment2.name : '点击选择或拖拽 PDF / DOC / DOCX'}</div>
             </button>
           </div>
           <div className="flex gap-2">
@@ -389,4 +406,3 @@ export default function AuthFlow({ onComplete, onCancel, visionModel = '' }: Pro
     </div>
   )
 }
-

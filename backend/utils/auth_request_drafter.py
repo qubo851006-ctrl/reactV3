@@ -17,6 +17,7 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import pdfplumber
@@ -50,6 +51,8 @@ AUTH_LEDGER_HEADERS = [
 def _clean_text(text: str) -> str:
     text = text.replace("\x07", "\n").replace("\r", "\n")
     text = re.sub(r"0000060905\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}", "", text)
+    text = re.sub(r"\n(?:\s*[0-9][:：]?\s*){3,}\n", "\n", text)
+    text = re.sub(r"\n(?:\s*[-—]\s*){3,}\n", "\n", text)
     text = re.sub(r"[ \t\u3000]+", " ", text)
     text = re.sub(r"\n\s+", "\n", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
@@ -65,6 +68,12 @@ def _normalize_doc_no(value: str | None) -> str | None:
         return None
     value = re.sub(r"\s+", "", value)
     value = value.replace("）", "〕").replace("（", "〔")
+    m = re.search(r"(中航集团规划发〔\d{4}〕\d+号)", value)
+    if m:
+        return m.group(1)
+    m = re.search(r"([\u4e00-\u9fa5A-Za-z]{2,12}发〔\d{4}〕\d+号)$", value)
+    if m:
+        return m.group(1)
     return value
 
 
@@ -74,7 +83,48 @@ def _normalize_project_name(value: str | None) -> str | None:
     value = re.sub(r"\s+", "", value)
     value = re.sub(r"^关于", "", value)
     value = re.sub(r"(需求调整及明确相关工作的通知|授权委托书|的请示|请示)$", "", value)
+    if len(value) > 80:
+        return None
     return value or None
+
+
+def _safe_extracted_text(value: str | None, max_len: int, fallback: str | None = None) -> str | None:
+    value = _dedupe_repeated(value)
+    if not value:
+        return fallback
+    value = re.sub(r"\s+", "", value)
+    return value if len(value) <= max_len else fallback
+
+
+def _extract_project_from_scope(scope: str | None) -> str | None:
+    if not scope:
+        return None
+    compact = _compact(scope)
+    m = re.search(r"为开展(.+?)(?:项目|工程)(?:的)?相关工作", compact)
+    if m:
+        return _normalize_project_name(m.group(1) + "项目")
+    return None
+
+
+def _dedupe_repeated(value: str | None) -> str | None:
+    if not value:
+        return value
+    value = value.strip()
+    for _ in range(4):
+        if len(value) % 2 == 0:
+            half = len(value) // 2
+            if value[:half] == value[half:]:
+                value = value[:half]
+                continue
+        break
+    sentences = [s for s in re.split(r"(?<=。)", value) if s]
+    if len(sentences) > 1:
+        compacted: list[str] = []
+        for sentence in sentences:
+            if sentence not in compacted:
+                compacted.append(sentence)
+        value = "".join(compacted)
+    return value.strip()
 
 
 def _short_name(full_name: str | None, fallback: str = "") -> str:
@@ -90,6 +140,16 @@ def _short_name(full_name: str | None, fallback: str = "") -> str:
 
 
 def _extract_pdf_text(pdf_bytes: bytes) -> str:
+    try:
+        import fitz  # PyMuPDF
+
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        text = "\n".join(page.get_text() for page in doc)
+        if text.strip():
+            return _clean_text(text)
+    except Exception:
+        pass
+
     text = ""
     with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
         for page in pdf.pages:
@@ -212,28 +272,33 @@ def extract_attachment1_info(pdf_bytes: bytes, *, ocr_text: str | None = None) -
     text = _extract_pdf_text(pdf_bytes) or _clean_text(ocr_text or "")
     compact = _compact(text)
 
-    title = None
-    m = re.search(r"关于(.+?通知)", compact)
-    if m:
-        title = "关于" + m.group(1)
+    title = _extract_attachment1_title(text)
+    if not title:
+        m = re.search(r"(关于.{3,80}?通知)", compact)
+        if m:
+            title = m.group(1)
 
     doc_no = None
     for pattern in [
-        r"([\u4e00-\u9fa5A-Za-z]+规划发〔\d{4}〕\d+号)",
-        r"([\u4e00-\u9fa5A-Za-z]+发〔\d{4}〕\d+号)",
+        r"([\u4e00-\u9fa5A-Za-z]{2,20}规划发〔\d{4}〕\d+号)",
+        r"([\u4e00-\u9fa5A-Za-z]{2,20}发〔\d{4}〕\d+号)",
     ]:
-        m = re.search(pattern, compact)
-        if m:
-            doc_no = _normalize_doc_no(m.group(1))
+        matches = re.findall(pattern, compact)
+        if matches:
+            doc_no = _normalize_doc_no(min(matches, key=len))
             break
 
     project_name = _normalize_project_name(title)
     undertaking_unit = None
     undertaking_short = None
-    m = re.search(r"请(.+?)(?:（以下简称[:：]?(.+?)）)?依据.*?开展前期工作", compact)
-    if m:
-        undertaking_unit = m.group(1)
-        undertaking_short = m.group(2) or _short_name(undertaking_unit)
+    if "中国航空集团建设开发有限公司" in compact:
+        undertaking_unit = "中国航空集团建设开发有限公司"
+        undertaking_short = "建开公司"
+    else:
+        m = re.search(r"同时请(.{4,40}?有限公司).*?开展前期工作", compact)
+        if m:
+            undertaking_unit = m.group(1)
+            undertaking_short = _short_name(undertaking_unit)
 
     return {
         "raw_text": text,
@@ -243,6 +308,32 @@ def extract_attachment1_info(pdf_bytes: bytes, *, ocr_text: str | None = None) -
         "undertaking_unit": undertaking_unit,
         "undertaking_short": undertaking_short,
     }
+
+
+def _extract_attachment1_title(text: str) -> str | None:
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    for idx, line in enumerate(lines):
+        normalized = re.sub(r"\s+", "", line)
+        normalized = re.sub(r"^[0-9:：\\-—]+", "", normalized)
+        if "关于" not in normalized or "《关于" in normalized:
+            continue
+        if len(normalized) > 60 and "通知" not in normalized:
+            continue
+        parts = [normalized[normalized.index("关于"):]]
+        for next_line in lines[idx + 1: idx + 5]:
+            next_norm = re.sub(r"\s+", "", next_line)
+            next_norm = re.sub(r"^[0-9:：\\-—]+", "", next_norm)
+            if not next_norm or re.fullmatch(r"[0-9:：\\-—]+", next_norm):
+                continue
+            parts.append(next_norm)
+            if "通知" in next_norm:
+                title = "".join(parts)
+                title = re.sub(r"[0-9:：\\-—]{3,}", "", title)
+                m = re.search(r"(关于.{3,80}?通知)", title)
+                return m.group(1) if m else title
+            if len("".join(parts)) > 80:
+                break
+    return None
 
 
 def _field_between(compact: str, start: str, end: str) -> str | None:
@@ -272,18 +363,18 @@ def extract_attachment2_info(file_bytes: bytes, filename: str, *, ocr_text: str 
         if m:
             auth_no = _normalize_doc_no(m.group(1))
 
-    principal = _field_between(compact, "企业名称", "注册地址")
-    legal_rep = _field_between(compact, "法定代表人", "职务")
-    trustee_name = _field_between(compact, "姓名", "电话")
-    trustee_phone = _field_between(compact, "电话", "工作单位")
-    trustee_work_unit = _field_between(compact, "工作单位", "职务")
+    principal = _dedupe_repeated(_field_between(compact, "企业名称", "注册地址"))
+    legal_rep = _dedupe_repeated(_field_between(compact, "法定代表人", "职务"))
+    trustee_name = _dedupe_repeated(_field_between(compact, "姓名", "电话"))
+    trustee_phone = _dedupe_repeated(_field_between(compact, "电话", "工作单位"))
+    trustee_work_unit = _dedupe_repeated(_field_between(compact, "工作单位", "职务"))
     trustee_position = None
     m = re.search(r"工作单位.+?职务(.+?)委托事项及权限", compact)
     if m:
-        trustee_position = m.group(1).strip()
-    scope = _field_between(compact, "委托事项及权限", "授权期限")
-    term = _field_between(compact, "授权期限", "委托单位盖章")
-    remark = _field_between(compact, "备注说明", "授权编号")
+        trustee_position = _dedupe_repeated(m.group(1).strip())
+    scope = _dedupe_repeated(_field_between(compact, "委托事项及权限", "授权期限"))
+    term = _dedupe_repeated(_field_between(compact, "授权期限", "委托单位盖章"))
+    remark = _dedupe_repeated(_field_between(compact, "备注说明", "授权编号"))
 
     scope = _trim_repeated_label(scope, "为开展")
     if scope and not scope.startswith("为开展"):
@@ -297,7 +388,7 @@ def extract_attachment2_info(file_bytes: bytes, filename: str, *, ocr_text: str 
 
     return {
         "raw_text": text,
-        "authorization_no": auth_no,
+        "authorization_no": _dedupe_repeated(auth_no),
         "principal_unit": principal,
         "principal_short": _short_name(principal, "委托单位"),
         "legal_representative": legal_rep,
@@ -317,20 +408,22 @@ def build_auth_request_text(extracted: dict[str, Any], user_inputs: dict[str, An
     a1 = extracted.get("attachment1") or {}
     a2 = extracted.get("attachment2") or {}
 
-    project_name = a1.get("project_name") or _normalize_project_name(a2.get("authorization_scope")) or "项目"
-    source_title = a1.get("title") or "相关文件"
-    source_no = a1.get("document_no") or "文件编号待补充"
-    undertaking_unit = a1.get("undertaking_unit") or a2.get("principal_unit") or "承办单位"
-    undertaking_short = a1.get("undertaking_short") or _short_name(undertaking_unit, "承办单位")
+    project_name = _normalize_project_name(a1.get("project_name")) or _extract_project_from_scope(a2.get("authorization_scope")) or "项目"
+    source_title = _safe_extracted_text(a1.get("title"), 100)
+    if not source_title:
+        source_title = f"关于{project_name}需求调整及明确相关工作的通知" if project_name != "项目" else "相关文件"
+    source_no = _normalize_doc_no(a1.get("document_no")) or "文件编号待补充"
+    undertaking_unit = _safe_extracted_text(a1.get("undertaking_unit"), 60) or a2.get("principal_unit") or "承办单位"
+    undertaking_short = _safe_extracted_text(a1.get("undertaking_short"), 20) or _short_name(undertaking_unit, "承办单位")
 
     trustee_work_unit = a2.get("trustee_work_unit") or ""
     if trustee_work_unit.startswith(a2.get("principal_unit") or ""):
         trustee_work_unit = trustee_work_unit.replace(a2.get("principal_unit") or "", _short_name(a2.get("principal_unit")), 1)
-    trustee_position = a2.get("trustee_position") or ""
-    trustee_name = a2.get("trustee_name") or "受托人"
+    trustee_position = _dedupe_repeated(a2.get("trustee_position")) or ""
+    trustee_name = _dedupe_repeated(a2.get("trustee_name")) or "受托人"
     permission_type = a2.get("permission_type") or "授权权限"
-    permission_detail = (a2.get("permission_detail") or "授权内容待补充").rstrip("。")
-    principal_short = a2.get("principal_short") or _short_name(a2.get("principal_unit"), "委托单位")
+    permission_detail = (_dedupe_repeated(a2.get("permission_detail")) or "授权内容待补充").rstrip("。")
+    principal_short = _dedupe_repeated(a2.get("principal_short")) or _short_name(a2.get("principal_unit"), "委托单位")
 
     auth_mode = user_inputs.get("auth_mode")
     transfer_subject = (user_inputs.get("transfer_subject") or "").strip()
@@ -423,6 +516,26 @@ def docx_to_base64(content: str, filename_prefix: str = "授权请示") -> tuple
             os.unlink(path)
         except OSError:
             pass
+
+
+def draft_auth_request(info: dict[str, Any]) -> str:
+    project_name = info.get("项目名称") or info.get("project_name") or "项目"
+    return f"关于办理{project_name}授权委托书的请示"
+
+
+def draft_auth_letter(info: dict[str, Any]) -> str:
+    project_name = info.get("项目名称") or info.get("project_name") or "项目"
+    return f"{project_name}授权委托书"
+
+
+def draft_auth_documents(info: dict[str, Any]) -> dict[str, str]:
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        request_future = executor.submit(draft_auth_request, info)
+        letter_future = executor.submit(draft_auth_letter, info)
+        return {
+            "auth_content": request_future.result(),
+            "letter_content": letter_future.result(),
+        }
 
 
 def _create_auth_ledger_workbook():

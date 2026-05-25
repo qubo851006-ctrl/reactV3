@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import os
+import re
 import tempfile
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
@@ -48,6 +49,12 @@ def _ocr_pdf_if_needed(pdf_bytes: bytes, text: str, vision_model: str) -> str:
     return ocr_pdf_with_vision(pdf_bytes, model=vision_model)
 
 
+def _safe_filename(name: str, suffix: str = ".docx") -> str:
+    cleaned = re.sub(r'[\\/:*?"<>|]+', "_", name).strip()
+    cleaned = re.sub(r"\s+", "", cleaned)
+    return f"{cleaned[:120] or '授权请示'}{suffix}"
+
+
 def _run_auth_extract(
     attachment1_bytes: bytes,
     attachment2_bytes: bytes,
@@ -70,7 +77,7 @@ def _run_auth_extract(
             on_progress(value, message)
 
     try:
-        progress(20, "正在解析附件1")
+        progress(20, "正在解析依据文件")
         with trace.step("attachment1_extract"):
             a1 = extract_attachment1_info(attachment1_bytes)
             if not a1.get("raw_text"):
@@ -79,7 +86,7 @@ def _run_auth_extract(
                     ocr_text=_ocr_pdf_if_needed(attachment1_bytes, "", vision_model),
                 )
 
-        progress(55, "正在解析附件2")
+        progress(55, "正在解析授权委托书")
         with trace.step("attachment2_extract"):
             ext = os.path.splitext(attachment2_filename)[1].lower()
             if ext == ".pdf":
@@ -181,7 +188,8 @@ async def generate_auth_request_docx(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
-    project_name = (body.extracted.get("attachment1") or {}).get("project_name") or "授权请示"
+    raw_project_name = str((body.extracted.get("attachment1") or {}).get("project_name") or "").strip()
+    project_name = raw_project_name if raw_project_name and len(raw_project_name) <= 80 else "授权请示"
     title = f"关于办理{project_name}授权委托书的请示"
 
     with tempfile.NamedTemporaryFile(suffix=".docx", delete=False, prefix="授权请示_") as tmp:
@@ -206,7 +214,7 @@ async def generate_auth_request_docx(
     return {
         "content": body.content,
         "docx_base64": docx_b64,
-        "filename": f"{title}.docx",
+        "filename": _safe_filename(title),
         "title": title,
         "ledger_updated": False,
         "ledger_base64": None,
@@ -264,6 +272,6 @@ async def start_auth_request_process_task(
 ):
     if not attachment1_file or not attachment2_file:
         if pdf_file is not None:
-            raise HTTPException(status_code=400, detail="请同时上传附件1和附件2")
-        raise HTTPException(status_code=400, detail="缺少附件1或附件2")
+            raise HTTPException(status_code=400, detail="请同时上传依据文件和授权委托书")
+        raise HTTPException(status_code=400, detail="缺少依据文件或授权委托书")
     return await start_auth_extract_task(attachment1_file, attachment2_file, session_id, vision_model, db, user)
