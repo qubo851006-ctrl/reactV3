@@ -494,6 +494,73 @@ export async function recordAuthRequestLedger(info: unknown, title: string) {
   return r.json()
 }
 
+export interface AuthUserInputs {
+  auth_mode: 'direct' | 'transfer'
+  transfer_subject: string
+  copies: string
+  seal: string
+  handler: string
+}
+
+export interface AuthGeneratedDoc {
+  content: string
+  docx_base64: string
+  filename: string
+  title: string
+  ledger_updated: boolean
+  ledger_base64: string | null
+  ledger_filename: string | null
+}
+
+export async function startAuthRequestExtractTask(
+  attachment1File: File,
+  attachment2File: File,
+  visionModel: string,
+): Promise<{ ok: boolean; task_id: string }> {
+  const form = new FormData()
+  form.append('attachment1_file', attachment1File)
+  form.append('attachment2_file', attachment2File)
+  form.append('session_id', _sid)
+  form.append('vision_model', visionModel)
+  const r = await apiFetch(`${BASE}/auth-request/extract-task`, { method: 'POST', body: form })
+  if (!r.ok) throw new Error(await r.text())
+  return r.json()
+}
+
+export async function previewAuthRequest(extracted: unknown, userInputs: AuthUserInputs): Promise<{ content: string }> {
+  const r = await apiFetch(`${BASE}/auth-request/preview`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ extracted, user_inputs: userInputs }),
+  })
+  if (!r.ok) throw new Error(await r.text())
+  return r.json()
+}
+
+export async function generateAuthRequestDocx(
+  extracted: unknown,
+  userInputs: AuthUserInputs,
+  content: string,
+): Promise<AuthGeneratedDoc> {
+  const r = await apiFetch(`${BASE}/auth-request/generate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ extracted, user_inputs: userInputs, content, session_id: _sid }),
+  })
+  if (!r.ok) throw new Error(await r.text())
+  return r.json()
+}
+
+export async function recordAuthRequestLedgerV2(extracted: unknown, userInputs: AuthUserInputs, title: string) {
+  const r = await apiFetch(`${BASE}/auth-request/record-ledger`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ extracted, user_inputs: userInputs, title, session_id: _sid }),
+  })
+  if (!r.ok) throw new Error(await r.text())
+  return r.json()
+}
+
 export function downloadDocx(base64: string, filename: string) {
   const bytes = atob(base64)
   const arr = new Uint8Array(bytes.length)

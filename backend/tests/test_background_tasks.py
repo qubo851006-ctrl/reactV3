@@ -191,15 +191,16 @@ class BackgroundTaskEndpointTests(unittest.TestCase):
             self.assertEqual(task.status, "queued")
             self.assertEqual(task.created_by, 1)
 
-    def test_auth_request_process_task_endpoint_creates_queued_task(self):
+    def test_auth_request_extract_task_endpoint_creates_queued_task(self):
         from models import BackgroundTask
 
         files = {
-            "pdf_file": ("auth.pdf", b"%PDF-1.4\nminimal", "application/pdf"),
+            "attachment1_file": ("attachment1.pdf", b"%PDF-1.4\nminimal", "application/pdf"),
+            "attachment2_file": ("attachment2.pdf", b"%PDF-1.4\nminimal", "application/pdf"),
         }
         data = {"session_id": "s1", "vision_model": "vision-test"}
         with patch("routers.auth_request.submit_background_task") as submit:
-            response = self.client.post("/api/auth-request/process-task", files=files, data=data)
+            response = self.client.post("/api/auth-request/extract-task", files=files, data=data)
 
         self.assertEqual(response.status_code, 200)
         task_id = response.json()["task_id"]
@@ -207,7 +208,7 @@ class BackgroundTaskEndpointTests(unittest.TestCase):
 
         with self.SessionLocal() as db:
             task = db.query(BackgroundTask).filter(BackgroundTask.task_id == task_id).one()
-            self.assertEqual(task.type, "auth_request_process")
+            self.assertEqual(task.type, "auth_request_extract")
             self.assertEqual(task.status, "queued")
             self.assertEqual(task.created_by, 1)
 

@@ -10,7 +10,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { getBackgroundTask, getErrorMessage, listBackgroundTasks, startAuditAnalyzeTask, startAuthRequestProcessTask, startComplianceExtractTask, startLedgerExtractTask, startLedgerMergeTask, startTrainingExtractTask, submitLlmFeedback } from '../src/api'
+import { getBackgroundTask, getErrorMessage, listBackgroundTasks, startAuditAnalyzeTask, startAuthRequestExtractTask, startComplianceExtractTask, startLedgerExtractTask, startLedgerMergeTask, startTrainingExtractTask, submitLlmFeedback } from '../src/api'
 
 describe('getErrorMessage', () => {
   it('returns the Error.message for Error instances', () => {
@@ -206,16 +206,17 @@ describe('background task API helpers', () => {
     }))
   })
 
-  it('starts auth request process tasks through the async endpoint', async () => {
+  it('starts auth request extract tasks through the async endpoint', async () => {
     fetchSpy.mockResolvedValueOnce(
       new Response(JSON.stringify({ ok: true, task_id: 'task_auth' }), { status: 200 }),
     )
-    const file = new File([new Uint8Array([0x25, 0x50, 0x44, 0x46])], 'auth.pdf', { type: 'application/pdf' })
+    const attachment1 = new File([new Uint8Array([0x25, 0x50, 0x44, 0x46])], 'attachment1.pdf', { type: 'application/pdf' })
+    const attachment2 = new File([new Uint8Array([0x25, 0x50, 0x44, 0x46])], 'attachment2.pdf', { type: 'application/pdf' })
 
-    const result = await startAuthRequestProcessTask(file, 'vision-test')
+    const result = await startAuthRequestExtractTask(attachment1, attachment2, 'vision-test')
 
     expect(result.task_id).toBe('task_auth')
-    expect(fetchSpy).toHaveBeenCalledWith('/api/auth-request/process-task', expect.objectContaining({
+    expect(fetchSpy).toHaveBeenCalledWith('/api/auth-request/extract-task', expect.objectContaining({
       method: 'POST',
       body: expect.any(FormData),
     }))

@@ -2,6 +2,15 @@ import type { VersionEntry } from './branding'
 
 export const VERSION_ENTRIES: VersionEntry[] = [
   {
+    version: 'v3.6.3',
+    date: '2026-05-25',
+    changes: [
+      { type: 'feat', text: '授权请示起草流程重做：支持上传附件1依据文件 PDF 和附件2授权委托书（PDF / DOC / DOCX），先提取字段，再由用户确认直接授权或转授权、补填经办人、份数和印章。' },
+      { type: 'feat', text: '授权请示正文改为固定模板生成，按附件3版式输出 DOCX：仿宋_GB2312、三号正文、固定行距、首行缩进和附件清单格式保持一致。' },
+      { type: 'feat', text: '授权台账写入改为下载请示后自动触发，台账字段按授权台账示例填充，授权起止日期保留为单列，办理时间、文号、归档日期等后续归档字段仅保留表头。' },
+    ],
+  },
+  {
     version: 'v3.6.2',
     date: '2026-05-20',
     changes: [
