@@ -2,6 +2,15 @@ import type { VersionEntry } from './branding'
 
 export const VERSION_ENTRIES: VersionEntry[] = [
   {
+    version: 'v3.6.4',
+    date: '2026-05-26',
+    changes: [
+      { type: 'fix', text: '授权委托书 .doc 增加无 Office 环境的二进制文本兜底解析，服务器未安装 Word 或 LibreOffice 时仍可提取老式 Word 授权书。' },
+      { type: 'fix', text: '授权请示 DOCX 字体统一为仿宋_GB2312，中文、字母和数字使用同一字体输出。' },
+      { type: 'fix', text: '授权台账写入增加编号去重：同一授权编号再次生成时更新原行，不再新增重复记录；授权起止日期自动去掉“授权期限：”前缀。' },
+    ],
+  },
+  {
     version: 'v3.6.3',
     date: '2026-05-25',
     changes: [

@@ -16,8 +16,8 @@ import re
 import shutil
 import subprocess
 import tempfile
-from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Any
 
 import pdfplumber
@@ -57,6 +57,11 @@ def _clean_text(text: str) -> str:
     text = re.sub(r"\n\s+", "\n", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
+
+
+def _strip_word_field_codes(text: str) -> str:
+    text = re.sub(r"\x13[^\x14\x15]{0,1000}\x14", "", text)
+    return text.replace("\x15", "")
 
 
 def _compact(text: str) -> str:
@@ -124,6 +129,14 @@ def _dedupe_repeated(value: str | None) -> str | None:
             if sentence not in compacted:
                 compacted.append(sentence)
         value = "".join(compacted)
+    return value.strip()
+
+
+def _normalize_authorization_term(value: str | None) -> str | None:
+    value = _dedupe_repeated(value)
+    if not value:
+        return value
+    value = re.sub(r"^\s*授权期限\s*[:：]?\s*", "", value)
     return value.strip()
 
 
@@ -231,6 +244,20 @@ try {
             return _clean_text(f.read())
 
 
+def _extract_doc_text_from_binary(doc_bytes: bytes) -> str:
+    text = _strip_word_field_codes(doc_bytes.decode("utf-16le", errors="ignore"))
+    markers = ["授权 委 托 书", "授权委托书", "企业名称", "委托单位"]
+    starts = [text.find(marker) for marker in markers if text.find(marker) >= 0]
+    if starts:
+        text = text[min(starts):]
+    text = re.split(r"\x00{8,}", text, maxsplit=1)[0]
+    text = _clean_text(text)
+    compact = _compact(text)
+    if "企业名称" not in compact or "授权编号" not in compact:
+        raise RuntimeError(".doc 二进制文本兜底未提取到授权委托书正文")
+    return text
+
+
 def _extract_doc_text_with_soffice(doc_bytes: bytes) -> str:
     soffice = shutil.which("soffice") or shutil.which("libreoffice")
     if not soffice:
@@ -258,6 +285,10 @@ def extract_attachment_text(file_bytes: bytes, filename: str) -> str:
     if ext == ".docx":
         return _extract_docx_text(file_bytes)
     if ext == ".doc":
+        try:
+            return _extract_doc_text_from_binary(file_bytes)
+        except Exception:
+            pass
         try:
             return _extract_doc_text_with_word(file_bytes)
         except Exception:
@@ -373,7 +404,7 @@ def extract_attachment2_info(file_bytes: bytes, filename: str, *, ocr_text: str 
     if m:
         trustee_position = _dedupe_repeated(m.group(1).strip())
     scope = _dedupe_repeated(_field_between(compact, "委托事项及权限", "授权期限"))
-    term = _dedupe_repeated(_field_between(compact, "授权期限", "委托单位盖章"))
+    term = _normalize_authorization_term(_field_between(compact, "授权期限", "委托单位盖章"))
     remark = _dedupe_repeated(_field_between(compact, "备注说明", "授权编号"))
 
     scope = _trim_repeated_label(scope, "为开展")
@@ -454,8 +485,8 @@ def _set_run_font(run, cn_font: str = "仿宋_GB2312", size_pt: float = 16) -> N
     run.font.name = cn_font
     r_pr = run._r.get_or_add_rPr()
     r_fonts = r_pr.get_or_add_rFonts()
-    r_fonts.set(qn("w:ascii"), "Times New Roman")
-    r_fonts.set(qn("w:hAnsi"), "Times New Roman")
+    r_fonts.set(qn("w:ascii"), cn_font)
+    r_fonts.set(qn("w:hAnsi"), cn_font)
     r_fonts.set(qn("w:eastAsia"), cn_font)
     r_fonts.set(qn("w:cs"), cn_font)
 
@@ -483,7 +514,10 @@ def save_auth_request_docx(content: str, output_path: str) -> None:
     styles = doc.styles
     styles["Normal"].font.name = "仿宋_GB2312"
     styles["Normal"].font.size = Pt(16)
+    styles["Normal"]._element.rPr.rFonts.set(qn("w:ascii"), "仿宋_GB2312")
+    styles["Normal"]._element.rPr.rFonts.set(qn("w:hAnsi"), "仿宋_GB2312")
     styles["Normal"]._element.rPr.rFonts.set(qn("w:eastAsia"), "仿宋_GB2312")
+    styles["Normal"]._element.rPr.rFonts.set(qn("w:cs"), "仿宋_GB2312")
 
     lines = [line.strip() for line in content.splitlines() if line.strip()]
     for idx, line in enumerate(lines):
@@ -585,7 +619,7 @@ def build_ledger_row(extracted: dict[str, Any], user_inputs: dict[str, Any], tit
         a2.get("trustee_name"),
         user_inputs.get("seal"),
         user_inputs.get("copies"),
-        a2.get("authorization_term"),
+        _normalize_authorization_term(a2.get("authorization_term")),
         a2.get("authorization_scope"),
         None,
         None,
@@ -619,18 +653,29 @@ def record_to_ledger(extracted: dict[str, Any], user_inputs: dict[str, Any], tit
                 pass
 
         values = build_ledger_row(extracted, user_inputs, title)
-        values[0] = max_seq + 1
-        next_row = ws.max_row + 1
+        auth_no = values[1]
+        target_row = None
+        if auth_no:
+            normalized_auth_no = re.sub(r"\s+", "", str(auth_no))
+            for row_idx in range(2, ws.max_row + 1):
+                existing = ws.cell(row_idx, 2).value
+                if existing and re.sub(r"\s+", "", str(existing)) == normalized_auth_no:
+                    target_row = row_idx
+                    values[0] = ws.cell(row_idx, 1).value or max_seq + 1
+                    break
+        if target_row is None:
+            values[0] = max_seq + 1
+            target_row = ws.max_row + 1
         thin = Side(style="thin", color="000000")
         border = Border(left=thin, right=thin, top=thin, bottom=thin)
         for col, value in enumerate(values, start=1):
-            cell = ws.cell(next_row, col, value)
+            cell = ws.cell(target_row, col, value)
             cell.font = Font(name="宋体", size=10)
             cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
             if col == 9:
                 cell.alignment = Alignment(horizontal="justify", vertical="center", wrap_text=True)
             cell.border = border
-        ws.row_dimensions[next_row].height = 123
+        ws.row_dimensions[target_row].height = 123
         atomic_save_workbook(wb, ledger_path)
     return True
 
