@@ -7,7 +7,8 @@
 #     git config core.hooksPath tools/git-hooks
 #
 # Emergency bypass (use sparingly, e.g. pushing a docs-only hotfix):
-#     SKIP_HOOK=1 git push
+#     SKIP_HOOK=1 git push        # skip everything
+#     SKIP_E2E=1  git push        # skip only the slower e2e step, keep pytest+vitest
 # ─────────────────────────────────────────────────────────────────────────
 
 if [ "$SKIP_HOOK" = "1" ]; then
@@ -26,11 +27,18 @@ fail() {
     exit 1
 }
 
-echo "[pre-push] 1/2  backend pytest ..."
+echo "[pre-push] 1/3  backend pytest ..."
 ( cd "$ROOT/backend" && python -m pytest tests/ -q ) || fail "backend pytest"
 
-echo "[pre-push] 2/2  frontend vitest ..."
+echo "[pre-push] 2/3  frontend vitest ..."
 ( cd "$ROOT/frontend" && npm run test ) || fail "frontend vitest"
+
+if [ "$SKIP_E2E" = "1" ]; then
+    echo "[pre-push] 3/3  frontend e2e -- SKIP_E2E=1 已跳过(pytest+vitest 仍已通过)"
+else
+    echo "[pre-push] 3/3  frontend e2e (playwright, 用系统 Edge) ..."
+    ( cd "$ROOT/frontend" && npm run test:e2e ) || fail "frontend e2e"
+fi
 
 echo "[pre-push] OK -- 全部通过,放行 push"
 exit 0

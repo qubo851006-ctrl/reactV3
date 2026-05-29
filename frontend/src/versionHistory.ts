@@ -2,6 +2,16 @@ import type { VersionEntry } from './branding'
 
 export const VERSION_ENTRIES: VersionEntry[] = [
   {
+    version: 'v3.6.10',
+    date: '2026-05-29',
+    changes: [
+      { type: 'fix', text: 'E2E 测试修复+扩容:原有三台账合并 spec 因 UI 改版用了脆弱的位置依赖 selector(getByRole("button").last())已失效,重写为稳定的 role+name 选择器(点快捷技能按钮进入流程);新增登录态路由 spec(未登录落登录页 / 已登录进主界面)。' },
+      { type: 'fix', text: 'Playwright 改用系统 Edge 运行(PW_CHANNEL,默认 msedge):内置 chromium 下载被网络封锁,改调本机已装浏览器即可跑,无需下载 ~150MB。' },
+      { type: 'refactor', text: 'E2E 纳入 pre-push 钩子第 3 道:push 前自动跑(单 worker 串行 + retry 1 次 + 放宽超时,压住共享 dev server 的冷启动波动)。新增 SKIP_E2E=1 细粒度旁路,急用时可单跳 E2E 保留 pytest+vitest。' },
+      { type: 'refactor', text: '抽取 tests/e2e/helpers.ts 公共 mock(登录态/会话/模型路由),避免每个 spec 重复粘贴。' },
+    ],
+  },
+  {
     version: 'v3.6.9',
     date: '2026-05-29',
     changes: [

@@ -32,6 +32,18 @@
 
 ---
 
+## 2026-05-29 更新（v3.6.10 · E2E 测试修复 + 扩容 + 纳入钩子）
+
+- **修好失效的 E2E**：原有三台账合并 spec 因 UI 改版用了脆弱的位置依赖 selector（`getByRole('button').last()`）早已失效、却没纳入任何门禁所以无人发现。重写为稳定的 `role+name` 选择器（点快捷技能按钮进入流程），断言收缩到"关键路径不崩 + flow 切换正确"（业务计算由后端单测覆盖，mock 下断言完整结果既脆弱又无意义）。
+- **新增登录态路由 spec**：验证 `AuthGate` 按 `/api/auth/me` 正确分流——未登录落到登录页、已登录进主界面。这一层独立于业务 UI 细节，最稳。
+- **Playwright 改用系统 Edge**：内置 chromium（v1223 / Chrome 148）下载被网络封锁（官方源超时、npmmirror 未同步），改用 `PW_CHANNEL`（默认 `msedge`）调本机已装浏览器，无需下载 ~150MB。Linux CI 上可置空 `PW_CHANNEL` 回退内置 chromium。
+- **E2E 纳入 pre-push 钩子第 3 道**：push 前自动跑。针对 mock E2E 共享 vite dev server 的冷启动波动，配了单 worker 串行 + retry 1 次 + 放宽超时（test 60s / 断言 15s）压住 flaky；连续两次跑稳定通过（~17s）。新增 `SKIP_E2E=1` 细粒度旁路（急用时单跳 E2E、保留 pytest+vitest），`SKIP_HOOK=1` 仍可全跳。
+- **抽取 `tests/e2e/helpers.ts`** 公共 mock（登录态 / 会话列表 / 模型路由），避免每个 spec 重复粘贴。
+- **仍不进 GitHub CI**：E2E 依赖系统 Edge + 冷启动慢，留在本地 pre-push 这一道；CI 保持 pytest + vitest 的快稳组合（理由见 `docs/CI.md`）。
+- 对应 2026-05-29 健壮性体检报告的 P1 #8（E2E 扩容）。
+
+---
+
 ## 2026-05-29 更新（v3.6.9 · 后台任务孤儿回收 + 静默吞错收口）
 
 - **后台任务孤儿回收**：后台任务跑在进程内的 `ThreadPoolExecutor` 里，服务一旦重启（部署/崩溃/手动重启），原本"排队中/处理中"的任务工作线程随旧进程消失，但 DB 行永远停在那个状态——界面一直转圈、永不结束。新增 `task_runner.reclaim_orphaned_tasks()`，在 startup 时把所有非终态（queued/running）任务标记为 `failed` + "服务重启导致任务中断,请重新发起"，给用户明确终态。幂等，终态任务（succeeded/failed/cancelled）不受影响。

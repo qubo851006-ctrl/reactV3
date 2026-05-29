@@ -106,9 +106,13 @@ CI 跑出来的红/绿目前**只是参考**,master 上的 push 不会因为 CI 
 
 ## 本地 pre-push 门禁(已启用 · 推荐给直接 push 到 master 的工作流)
 
-因为 GitHub 免费版的 branch protection 只对 PR 生效、拦不住直接 push,本仓库额外配了一个**本地 git pre-push 钩子**:每次 `git push` 前自动在本机跑 backend pytest + frontend vitest,**任一失败就拦住 push**,红的代码根本出不了你的机器。
+因为 GitHub 免费版的 branch protection 只对 PR 生效、拦不住直接 push,本仓库额外配了一个**本地 git pre-push 钩子**:每次 `git push` 前自动在本机跑 backend pytest + frontend vitest + frontend e2e,**任一失败就拦住 push**,红的代码根本出不了你的机器。
 
-钩子脚本:`tools/git-hooks/pre-push`(已纳入版本控制)。
+钩子脚本:`tools/git-hooks/pre-push`(已纳入版本控制)。三道依次:
+
+1. `backend: python -m pytest tests/`
+2. `frontend: npm run test`(vitest)
+3. `frontend: npm run test:e2e`(playwright,用系统 Edge)
 
 ### 新 clone / 换机器后激活(每个克隆跑一次)
 
@@ -127,17 +131,28 @@ git config --get core.hooksPath   # 应输出 tools/git-hooks
 
 ### 它在拦什么
 
-- push 前自动跑 `backend: python -m pytest tests/` + `frontend: npm run test`
+- push 前依次跑 pytest + vitest + playwright e2e
 - 全绿 → 放行 push
 - 任一红 → 打印失败项并 **exit 1 拦截**,push 不会发生
 
-### 紧急绕过(谨慎,仅限文档热修等明确安全场景)
+### E2E 说明(第 3 道)
+
+- 用**系统 Edge** 跑(`PW_CHANNEL` 默认 `msedge`),不依赖下载内置 chromium
+- mock 模式:验证关键路径导航不崩 + flow 切换,不连真实后端
+- 配了单 worker 串行 + retry 1 次 + 放宽超时,压住共享 dev server 的冷启动波动
+- 比前两道慢(~17-50 秒,含 vite 冷启动 + 浏览器启动)
+
+### 紧急绕过(谨慎)
 
 ```powershell
+# 全跳(文档热修等明确安全场景)
 $env:SKIP_HOOK=1; git push; Remove-Item Env:SKIP_HOOK
+
+# 只跳较慢的 e2e,保留 pytest+vitest
+$env:SKIP_E2E=1; git push; Remove-Item Env:SKIP_E2E
 ```
 
-(bash 环境:`SKIP_HOOK=1 git push`)
+(bash 环境:`SKIP_HOOK=1 git push` / `SKIP_E2E=1 git push`)
 
 ### 跟 CI 的关系
 
