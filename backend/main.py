@@ -49,8 +49,12 @@ app.include_router(llm_traces.router,  dependencies=_auth)
 def startup():
     from db import init_db
     from model_routes import ensure_model_routes_file
+    from task_runner import reclaim_orphaned_tasks
     init_db()
     ensure_model_routes_file()
+    # Tasks left queued/running by a previous process have no worker thread
+    # anymore — give them a terminal state so the UI doesn't spin forever.
+    reclaim_orphaned_tasks()
 
 
 @app.get("/api/health")

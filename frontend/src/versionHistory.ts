@@ -2,6 +2,15 @@ import type { VersionEntry } from './branding'
 
 export const VERSION_ENTRIES: VersionEntry[] = [
   {
+    version: 'v3.6.9',
+    date: '2026-05-29',
+    changes: [
+      { type: 'fix', text: '后台任务孤儿回收：服务重启后，原本卡在"排队中/处理中"的任务因为工作线程已随旧进程消失，会永远停在那个状态、界面一直转圈。现在启动时自动把这类僵尸任务标记为"失败 · 服务重启中断，请重新发起"，给用户明确终态。' },
+      { type: 'fix', text: '收口 6 处静默吞错：PDF/.doc 多重提取回退、合规调试快照、资产负债率解析、MCP 可选握手等容错场景此前失败后无任何日志，现在统一记 debug 便于排查。' },
+      { type: 'fix', text: '企查查 MCP 单个工具调用失败此前被静默跳过——该维度数据缺失但用户和运维都看不出来，现在升为 warning 日志并带工具名，避免"结果少一块却无人知"。' },
+    ],
+  },
+  {
     version: 'v3.6.8',
     date: '2026-05-29',
     changes: [

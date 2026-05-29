@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,8 @@ from config import (
     COMPLIANCE_RESPONSIBLE_PERSONS_PATH,
 )
 from file_store import atomic_write_text, file_lock
+
+logger = logging.getLogger(__name__)
 
 
 COMPLIANCE_EXTRACT_MODEL = "qwen2.5-72b"
@@ -493,7 +496,8 @@ def _write_compliance_debug(payload: dict[str, Any]) -> None:
             encoding="utf-8",
         )
     except Exception:
-        pass
+        # 调试快照失败不影响主流程,但记一笔便于排查磁盘/权限问题
+        logger.debug("写入合规审查调试快照失败", exc_info=True)
 
 
 def _apply_approval_entries(raw: dict[str, Any], persons: dict[str, str]) -> dict[str, Any]:

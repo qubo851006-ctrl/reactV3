@@ -14,11 +14,14 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 import httpx
 
 from config import QCC_TOKEN, AI_HTTP_VERIFY_SSL
+
+logger = logging.getLogger(__name__)
 from utils.qcc_mcp_client import (
     _ENDPOINT_URLS,
     _Session,
@@ -204,7 +207,7 @@ def _calculate_rating(
                     liability_ratio = float(str(v).replace("%", "")) / 100 if "%" in str(v) else float(v)
                     break
                 except Exception:
-                    pass
+                    logger.debug("资产负债率字段 %r 解析失败,值=%r", k, v, exc_info=True)
 
     # 可执行资产信号
     asset_signals = sum(

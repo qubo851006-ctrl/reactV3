@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import base64
 import io
+import logging
 import os
 import re
 import shutil
@@ -21,6 +22,8 @@ from pathlib import Path
 from typing import Any
 
 import pdfplumber
+
+logger = logging.getLogger(__name__)
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
 from docx.oxml.ns import qn
@@ -161,7 +164,7 @@ def _extract_pdf_text(pdf_bytes: bytes) -> str:
         if text.strip():
             return _clean_text(text)
     except Exception:
-        pass
+        logger.debug("PyMuPDF 提取 PDF 文本失败,回退到 pdfplumber", exc_info=True)
 
     text = ""
     with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
@@ -288,7 +291,7 @@ def extract_attachment_text(file_bytes: bytes, filename: str) -> str:
         try:
             return _extract_doc_text_from_binary(file_bytes)
         except Exception:
-            pass
+            logger.debug(".doc 二进制文本提取失败,回退到 Word COM 提取", exc_info=True)
         try:
             return _extract_doc_text_with_word(file_bytes)
         except Exception:

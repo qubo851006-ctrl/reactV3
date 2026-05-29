@@ -18,11 +18,14 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 import httpx
 
 from config import QCC_TOKEN, AI_HTTP_VERIFY_SSL
+
+logger = logging.getLogger(__name__)
 
 # ── 端点 URL ─────────────────────────────────────────────────────────────────
 _ENDPOINT_URLS: dict[str, str] = {
@@ -135,7 +138,8 @@ class _Session:
                 "jsonrpc": "2.0", "method": "notifications/initialized",
             }, timeout=10)
         except Exception:
-            pass
+            # initialized 通知是可选握手步骤,失败不影响后续工具调用
+            logger.debug("MCP notifications/initialized 发送失败(可忽略)", exc_info=True)
 
     def list_tools(self) -> list[dict]:
         resp = self._client.post(self._url, headers=self._headers, json={
@@ -199,7 +203,8 @@ def _query_dynamic_category(
             if data is not None:
                 results[label] = data
         except Exception:
-            pass
+            # 单个工具失败会让该维度数据缺失,用户却看不出来 —— 必须留痕
+            logger.warning("QCC MCP 工具 %r 调用失败,该维度数据缺失", name, exc_info=True)
 
     return results or {"_error": "所有工具均无返回数据"}
 

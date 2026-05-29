@@ -21,6 +21,56 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+# Non-terminal statuses: tasks stuck here after a restart are orphaned, because
+# the ThreadPoolExecutor that was running them died with the old process.
+_NON_TERMINAL_STATUSES = ("queued", "running")
+
+
+def reclaim_orphaned_tasks(db: DBSession | None = None) -> int:
+    """Mark tasks left in queued/running as failed on startup.
+
+    Background tasks run in an in-process ThreadPoolExecutor. When the process
+    restarts (deploy, crash, manual restart), any task that was still queued or
+    running has no thread behind it anymore, but its DB row stays stuck in that
+    status forever — the UI shows a spinner that never resolves.
+
+    Call this once on startup, after the DB is ready. It gives every orphan a
+    clear terminal state so the user knows to re-submit. Idempotent: terminal
+    tasks (succeeded/failed/cancelled) are never touched.
+
+    Returns the number of tasks reclaimed.
+    """
+    own_session = db is None
+    if own_session:
+        db = SessionLocal()
+    try:
+        orphans = (
+            db.query(BackgroundTask)
+            .filter(BackgroundTask.status.in_(_NON_TERMINAL_STATUSES))
+            .all()
+        )
+        if not orphans:
+            return 0
+        now = _now()
+        for task in orphans:
+            task.status = "failed"
+            task.message = "服务重启中断"
+            task.error = "服务重启导致任务中断,请重新发起。"
+            task.finished_at = now
+            task.updated_at = now
+        db.commit()
+        logger.warning("启动回收孤儿后台任务 %d 个(原 queued/running)", len(orphans))
+        return len(orphans)
+    except Exception:
+        logger.exception("回收孤儿后台任务失败")
+        if db is not None:
+            db.rollback()
+        return 0
+    finally:
+        if own_session and db is not None:
+            db.close()
+
+
 def create_background_task(
     db: DBSession,
     *,

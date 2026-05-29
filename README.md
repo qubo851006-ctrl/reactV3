@@ -32,6 +32,16 @@
 
 ---
 
+## 2026-05-29 更新（v3.6.9 · 后台任务孤儿回收 + 静默吞错收口）
+
+- **后台任务孤儿回收**：后台任务跑在进程内的 `ThreadPoolExecutor` 里，服务一旦重启（部署/崩溃/手动重启），原本"排队中/处理中"的任务工作线程随旧进程消失，但 DB 行永远停在那个状态——界面一直转圈、永不结束。新增 `task_runner.reclaim_orphaned_tasks()`，在 startup 时把所有非终态（queued/running）任务标记为 `failed` + "服务重启导致任务中断,请重新发起"，给用户明确终态。幂等，终态任务（succeeded/failed/cancelled）不受影响。
+- **收口 6 处静默吞错**：`auth_request_drafter`（PDF/.doc 多重提取回退）、`compliance_ledger`（调试快照写入）、`qcc_debt_assessment`（资产负债率解析）、`qcc_mcp_client`（MCP 可选握手）此前 `except: pass` 失败后无任何痕迹，现在统一记 `logger.debug`，失败可排查、控制流不变（全是合理的容错降级，零回归）。
+- **企查查工具失败从"静默跳过"升为告警**：`qcc_mcp_client` 单个 MCP 工具调用失败此前被 `pass` 吞掉——该维度数据缺失，但用户和运维都看不出来。现在升为 `logger.warning` 并带工具名，避免"结果少一块却无人知"。
+- **测试**：新增 `tests/test_task_reclaim.py` 3 个用例（孤儿回收 + 终态不动 + 幂等）；后端 pytest 342 全过（v3.6.8 的 339 + 新 3），前端 vitest 39 全过。
+- 对应 2026-05-29 健壮性体检报告的 P1 #1（静默吞错收口）与 P1 #3（后台任务持久化）。
+
+---
+
 ## 2026-05-29 更新（v3.6.8 · GitHub Actions CI 门禁）
 
 - **CI 门禁上线**：`.github/workflows/ci.yml` 在 push 到 master / 对 master 开 PR 时自动并行跑两个 job —— Backend（pytest 339 个测试）+ Frontend（eslint + vitest 39 个测试 + tsc/vite build），全绿才算合格。
