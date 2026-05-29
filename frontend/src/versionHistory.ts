@@ -2,6 +2,17 @@ import type { VersionEntry } from './branding'
 
 export const VERSION_ENTRIES: VersionEntry[] = [
   {
+    version: 'v3.6.8',
+    date: '2026-05-29',
+    changes: [
+      { type: 'refactor', text: 'GitHub Actions CI 门禁上线：每次 push 到 master 或开 PR 自动并行跑 backend pytest 339 个测试 + frontend lint + vitest 39 个测试 + tsc/vite build，全绿才算合格；带 pip / npm 缓存，常态命中后整轮 ~1 分钟。' },
+      { type: 'fix', text: '清理前端 lint 历史问题：删 IdentityLogin.test.tsx 未用的 jsonResponse 辅助函数；AuthFlow.tsx 的 Record<string, any> 收紧为嵌套 Record<string, Record<string, string | null | undefined>> 精确类型，编译期就能查出索引错误。' },
+      { type: 'refactor', text: 'eslint.config.js 把 React 19 新规则 react-hooks/set-state-in-effect 降为 warn，避免历史代码批量返工阻塞 CI；同时保留 warning 提示新代码不要新增这类用法。' },
+      { type: 'refactor', text: '新增 docs/CI.md：当前跑什么、不跑什么、本地复现失败、branch protection 配置步骤、未来扩展路线（ruff / pre-commit / Playwright workflow）。' },
+      { type: 'refactor', text: 'README 顶部加 CI 徽章，一眼可见 master 状态。' },
+    ],
+  },
+  {
     version: 'v3.6.7',
     date: '2026-05-29',
     changes: [

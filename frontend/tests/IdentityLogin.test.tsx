@@ -3,10 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import IdentityLogin from '../src/components/IdentityLogin'
 
-function jsonResponse(body: unknown, status = 200) {
-  return Promise.resolve(new Response(JSON.stringify(body), { status }))
-}
-
 describe('IdentityLogin DingTalk SSO fallback', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn())

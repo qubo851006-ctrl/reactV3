@@ -1,5 +1,7 @@
 # 法度云图
 
+[![CI](https://github.com/qubo851006-ctrl/reactV3/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/qubo851006-ctrl/reactV3/actions/workflows/ci.yml)
+
 法度云图是基于 React + FastAPI 的内部法务合规智能工具，面向培训归档、案件台账、授权请示、审计问题分析、企业信息查询和多会话对话等工作场景。
 
 > **v3 主版本**（仓库 `reactV3`）。V2 同名仓库继续维护历史功能；V3 是为了引入 LLM 调用全链路追溯、用户反馈学习闭环、按场景智能选模型等架构能力而独立的演进分支，新功能后续只在 V3 落地。
@@ -27,6 +29,17 @@
 - 用户登录、角色权限、操作审计和多会话历史。
 - 模型切换：右上角可手工选择文字模型和图像模型；模型列表与默认模型由运行时路由配置控制。
 - 运维脚本（`tools/`）：一键启动后端 + 前端、PG 数据库每日备份、90 天前 LLM 追溯自动归档，可挂 Windows 任务计划程序无人值守。
+
+---
+
+## 2026-05-29 更新（v3.6.8 · GitHub Actions CI 门禁）
+
+- **CI 门禁上线**：`.github/workflows/ci.yml` 在 push 到 master / 对 master 开 PR 时自动并行跑两个 job —— Backend（pytest 339 个测试）+ Frontend（eslint + vitest 39 个测试 + tsc/vite build），全绿才算合格。
+- **缓存优化**：pip cache key 跟 `backend/requirements.txt` 内容绑定、npm cache 跟 `frontend/package-lock.json` 绑定，常态命中后整轮 ~1 分钟即可结束；同分支新 push 自动 cancel 旧 run，避免堆积。
+- **清理前端 lint 历史问题**：删 `IdentityLogin.test.tsx` 未用的 `jsonResponse` 辅助函数；`AuthFlow.tsx` 的 `Record<string, any>` 收紧为 `Record<string, Record<string, string | null | undefined>>` 精确嵌套类型，编译期就能查出索引错误。
+- **eslint.config.js 调整**：React 19 新规则 `react-hooks/set-state-in-effect` 在历史代码里有 3 处触发，先降级为 `warn` 让 CI 能跑起来，保留 warning 提示新代码不要新增这类用法（留 v3.6.9+ 单独治理 PR）。
+- **README 顶部加 CI 徽章**，一眼可见 master 当前状态；新增 `docs/CI.md` 说明当前跑什么、不跑什么、本地复现失败方法、branch protection 配置步骤、未来扩展路线（backend ruff / pre-commit hooks / Playwright workflow / 测试覆盖率上报）。
+- **不在 CI 范围内**：Playwright E2E（浏览器下载 ~150MB 慢且 spec 全 mock 后端）、backend ruff 静态检查（需历史代码先治理）、check:branding（需本地资源文件）；这些都在 `docs/CI.md` 里明确标注了排除理由。
 
 ---
 

@@ -50,8 +50,10 @@ interface Props {
 
 type Step = 'upload' | 'review' | 'preview' | 'done'
 
+type ExtractedFields = Record<string, Record<string, string | null | undefined>>
+
 interface ExtractTaskResult {
-  extracted: Record<string, any>
+  extracted: ExtractedFields
 }
 
 const fieldGroups = [
@@ -93,7 +95,7 @@ export default function AuthFlow({ onComplete, onCancel, visionModel = '' }: Pro
   const [taskProgress, setTaskProgress] = useState(0)
   const [taskMessage, setTaskMessage] = useState('')
   const [error, setError] = useState('')
-  const [extracted, setExtracted] = useState<Record<string, any> | null>(null)
+  const [extracted, setExtracted] = useState<ExtractedFields | null>(null)
   const [content, setContent] = useState('')
   const [generated, setGenerated] = useState<AuthGeneratedDoc | null>(null)
   const [ledgerBase64, setLedgerBase64] = useState<string | null>(null)
