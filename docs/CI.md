@@ -100,14 +100,58 @@ CI 跑出来的红/绿目前**只是参考**,master 上的 push 不会因为 CI 
 - 但所有走 PR 流程的改动,必须等两个 CI job 都绿才能 merge
 
 如果你**完全用 PR workflow**:配 branch protection 就能形成完整门禁。
-如果你**习惯直接 push 到 master**(MVP 阶段常见):CI 还是会跑,但只是事后通知,需要看 commits 列表的红绿标记。
+如果你**习惯直接 push 到 master**(MVP 阶段常见):branch protection 拦不住直接 push,这时真正有用的是下面的**本地 pre-push 门禁**。
 
 ---
 
-## 未来扩展(留 v3.6.9+)
+## 本地 pre-push 门禁(已启用 · 推荐给直接 push 到 master 的工作流)
+
+因为 GitHub 免费版的 branch protection 只对 PR 生效、拦不住直接 push,本仓库额外配了一个**本地 git pre-push 钩子**:每次 `git push` 前自动在本机跑 backend pytest + frontend vitest,**任一失败就拦住 push**,红的代码根本出不了你的机器。
+
+钩子脚本:`tools/git-hooks/pre-push`(已纳入版本控制)。
+
+### 新 clone / 换机器后激活(每个克隆跑一次)
+
+```powershell
+cd <仓库根>
+git config core.hooksPath tools/git-hooks
+```
+
+> 注:`core.hooksPath` 是本地 git config,不随仓库同步,所以每台机器 clone 后都要重跑这一行。跑一次就长期生效。
+
+### 验证是否已激活
+
+```powershell
+git config --get core.hooksPath   # 应输出 tools/git-hooks
+```
+
+### 它在拦什么
+
+- push 前自动跑 `backend: python -m pytest tests/` + `frontend: npm run test`
+- 全绿 → 放行 push
+- 任一红 → 打印失败项并 **exit 1 拦截**,push 不会发生
+
+### 紧急绕过(谨慎,仅限文档热修等明确安全场景)
+
+```powershell
+$env:SKIP_HOOK=1; git push; Remove-Item Env:SKIP_HOOK
+```
+
+(bash 环境:`SKIP_HOOK=1 git push`)
+
+### 跟 CI 的关系
+
+- **pre-push 钩子** = 第一道,在本机拦,最快反馈(~40 秒),代码不出门
+- **GitHub Actions CI** = 第二道,push 到 GitHub 后云端再跑一遍,防"本机环境跟 CI 不一致"漏网
+
+两道用的是同一批测试,互为保险。
+
+---
+
+## 未来扩展
 
 - [ ] 加 backend ruff 静态检查(需先治理历史代码)
-- [ ] 加 pre-commit hooks(husky / pre-commit 库),让 lint/test 在 commit 前就跑
+- [x] ~~本地 pre-push 钩子~~ 已用 git 原生 hook 实现(见上节;比 husky/pre-commit 库更轻,零额外依赖)
 - [ ] 单独的 Playwright workflow,只在 PR 触发,带浏览器缓存
 - [ ] 集成测试 job 连真实 PG(需 GH Actions secret + 临时数据库)
 - [ ] 测试覆盖率上报(codecov 或类似)

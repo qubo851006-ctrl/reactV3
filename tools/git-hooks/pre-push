@@ -1,0 +1,36 @@
+#!/bin/sh
+# ─────────────────────────────────────────────────────────────────────────
+# pre-push gate — runs the same checks CI runs, locally, before anything
+# leaves your machine. If a test fails, the push is blocked.
+#
+# Activate once per clone:
+#     git config core.hooksPath tools/git-hooks
+#
+# Emergency bypass (use sparingly, e.g. pushing a docs-only hotfix):
+#     SKIP_HOOK=1 git push
+# ─────────────────────────────────────────────────────────────────────────
+
+if [ "$SKIP_HOOK" = "1" ]; then
+    echo "[pre-push] SKIP_HOOK=1 -- 跳过本地测试门禁"
+    exit 0
+fi
+
+ROOT="$(git rev-parse --show-toplevel)"
+
+fail() {
+    echo ""
+    echo "[pre-push] ====================================================="
+    echo "[pre-push] X  $1 未通过 -- push 已拦截"
+    echo "[pre-push]    修复后重新 push;紧急绕过: SKIP_HOOK=1 git push"
+    echo "[pre-push] ====================================================="
+    exit 1
+}
+
+echo "[pre-push] 1/2  backend pytest ..."
+( cd "$ROOT/backend" && python -m pytest tests/ -q ) || fail "backend pytest"
+
+echo "[pre-push] 2/2  frontend vitest ..."
+( cd "$ROOT/frontend" && npm run test ) || fail "frontend vitest"
+
+echo "[pre-push] OK -- 全部通过,放行 push"
+exit 0
