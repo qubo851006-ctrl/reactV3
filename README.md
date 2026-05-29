@@ -30,6 +30,17 @@
 
 ---
 
+## 2026-05-29 更新（v3.6.6 · AI 调用韧性层）
+
+- **AI 调用层加固**：`backend/llm_client.py` 从 43 行裸客户端扩展为带韧性的统一调用层，新增 `call_llm_chat` 入口，自带超时（默认 30s）、指数退避重试（默认 3 次）、连续 5 次失败自动断路 30 秒（防止雪崩）、模型降级链（`MODEL_CHAT` → `AI_CHAT_MODELS` 其它模型 → 本地 Ollama 兜底）。单一模型抽风不再拖垮整条业务流。
+- **降级与全失败接入钉钉告警**：触发场景包含「降级到备选模型」「降级到本地 Ollama」「全链路失败」三类，60 秒同类去重避免刷屏，告警通道复用 v3.6.0 引入的 `send_dingtalk_notification`。
+- **业务调用路径保持向后兼容**：原 `get_async_llm_client()` 和 `get_llm_client()` 保留，避免大面积回归；新 `call_llm_chat` 接口已就绪，下个版本起逐个 skill 迁移（v3.6.7+）。
+- **新增 8 个单元测试**：`backend/tests/test_llm_client.py` 覆盖 ①首次成功 ②限流重试成功 ③主模型耗尽降级到次模型 ④全云端失败降级到 Ollama ⑤全失败开断路器+告警 ⑥断路器打开期间立刻拒绝 ⑦断路器超时后自动恢复 ⑧60 秒告警去重。
+- **零回归验证**：后端 pytest 327 全过（新增 8 + 原 319）、前端 vitest 39 全过、router import 11 全过；改动 0 影响现有业务。
+- **配置开关**：`LLM_BREAKER_THRESHOLD`（默认 5 次）、`LLM_BREAKER_COOLDOWN_SEC`（默认 30 秒）、`LLM_ALERT_DEDUPE_SEC`（默认 60 秒）均可通过 `.env` 调整。
+
+---
+
 ## 2026-05-29 更新（v3.6.5 · 数据库迁移基础设施）
 
 - **主业务数据库引入 alembic 迁移管理**：新增 `backend/alembic.ini` + `backend/migrations/`，以后任何模型字段改动都生成可重放、可回滚的迁移脚本，告别上线时人肉改 SQL 的赌博式升级。

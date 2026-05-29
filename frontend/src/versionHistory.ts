@@ -2,6 +2,16 @@ import type { VersionEntry } from './branding'
 
 export const VERSION_ENTRIES: VersionEntry[] = [
   {
+    version: 'v3.6.6',
+    date: '2026-05-29',
+    changes: [
+      { type: 'refactor', text: 'AI 调用层加固：新增 call_llm_chat 高层入口，自带超时、指数退避重试、连续 5 次失败自动断路 30 秒、模型降级链（首选 → 备选云端 → 本地 Ollama 兜底），单一模型抽风不再拖垮整条业务流。' },
+      { type: 'refactor', text: '降级与全失败接入钉钉告警：触发场景包含"降级到备选模型"、"降级到本地 Ollama"、"全链路失败"三类，60 秒同类去重避免刷屏，告警通道复用 v3.6.0 引入的 send_dingtalk_notification。' },
+      { type: 'refactor', text: '业务调用路径暂未切换，仍走旧的 AsyncOpenAI 注入方式（保留向后兼容）；新 call_llm_chat 接口已就绪，下个版本起逐个 skill 迁移。' },
+      { type: 'fix', text: '新增 backend/tests/test_llm_client.py 共 8 个测试用例覆盖：成功、限流重试、模型降级、Ollama 兜底、全失败告警、断路器拒绝、断路器自动恢复、告警去重；后端整套 pytest 327 个全部通过。' },
+    ],
+  },
+  {
     version: 'v3.6.5',
     date: '2026-05-29',
     changes: [
