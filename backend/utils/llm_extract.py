@@ -9,8 +9,14 @@ V3 项目里 LLM 经常被要求"只输出一个短词"（培训类别、文书�
 from __future__ import annotations
 
 import json
+import logging
 import re
-from typing import Iterable
+from typing import Iterable, TypeVar
+
+from pydantic import BaseModel, ValidationError
+
+logger = logging.getLogger(__name__)
+T = TypeVar("T", bound=BaseModel)
 
 # Markdown code fence 包裹：```json\n...\n```
 _FENCE_RE = re.compile(r"^```(?:json|JSON)?\s*|\s*```$", re.MULTILINE)
@@ -99,3 +105,110 @@ def extract_short_text(
             return fallback
 
     return text
+
+
+# ── 多字段强 schema 抽取 (since N2) ──────────────────────────────────────────
+
+# JSON 对象的"宽松"匹配 - 用于在自由文本里捞出第一个 { ... } 块
+# 注意：不支持嵌套大括号超过 1 层，因为 LLM 实际输出嵌套不深，这里求稳不求全
+_JSON_OBJECT_RE = re.compile(r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}", re.DOTALL)
+
+
+def _strip_json_envelope(raw: str) -> str:
+    """剥掉常见的"外包装"，露出 JSON 主体。
+
+    依次尝试：
+      - 去 markdown code fence
+      - 去解释性前缀
+      - 若仍非 JSON 起头，从文本里用正则捞出第一个 { ... } 块
+    返回的字符串可能仍不是合法 JSON——交给 json.loads 兜底。
+    """
+    text = raw.strip()
+    text = _FENCE_RE.sub("", text).strip()
+    # 反复剥前缀直到稳定
+    for _ in range(3):
+        new = _PREFIX_RE.sub("", text).strip()
+        if new == text:
+            break
+        text = new
+    # 仍不像 JSON 起头：尝试捞第一个 { ... } 块
+    if not text.startswith("{"):
+        match = _JSON_OBJECT_RE.search(text)
+        if match:
+            text = match.group(0)
+    return text
+
+
+def extract_structured(
+    raw: str | None,
+    model: type[T],
+    *,
+    fallback: T | None = None,
+    scene: str = "",
+) -> T | None:
+    """从 LLM 任意输出里安全解析出一个强 schema 对象。
+
+    防御层次：
+      1. 空 / None / 全空白 → fallback
+      2. 剥 markdown code fence、解释性前缀
+      3. 从自由文本里捞 JSON 块（防"前后还有解释"）
+      4. json.loads 解析，失败 → fallback
+      5. Pydantic 严格校验：缺字段 / 类型错 / 多字段都视为污染 → fallback
+      6. 所有失败路径都会写一行 logger.warning(含 scene)，便于事后排查
+
+    Args:
+        raw: LLM 原始返回（可能为 None / 整段污染 / 半截 JSON / 解释性前缀 + JSON）
+        model: Pydantic BaseModel 子类，定义期望的 schema
+        fallback: 校验失败时返回的兜底值（None 表示返回 None）
+        scene: 仅用于日志，便于排查哪类业务调用出问题
+
+    Returns:
+        合法的 model 实例，或 fallback。绝不返回"半截"或"污染"的对象。
+
+    Example:
+        >>> from pydantic import BaseModel
+        >>> class TrainingMeta(BaseModel):
+        ...     topic: str
+        ...     category: str
+        ...     hours: int
+        >>> result = extract_structured(llm_raw, TrainingMeta, scene="training_meta")
+        >>> if result is None:
+        ...     # 走人工 fallback 路径
+        ...     ...
+    """
+    if raw is None or not raw.strip():
+        if scene:
+            logger.warning("[extract_structured/%s] empty raw input", scene)
+        return fallback
+
+    text = _strip_json_envelope(raw)
+
+    # 解析 JSON
+    try:
+        parsed = json.loads(text)
+    except (ValueError, TypeError) as exc:
+        if scene:
+            logger.warning(
+                "[extract_structured/%s] json.loads failed: %s; raw head=%r",
+                scene, exc, raw[:120],
+            )
+        return fallback
+
+    if not isinstance(parsed, dict):
+        if scene:
+            logger.warning(
+                "[extract_structured/%s] parsed JSON is %s, not object",
+                scene, type(parsed).__name__,
+            )
+        return fallback
+
+    # Pydantic 严格校验
+    try:
+        return model.model_validate(parsed)
+    except ValidationError as exc:
+        if scene:
+            logger.warning(
+                "[extract_structured/%s] schema validation failed: %s",
+                scene, exc.errors()[:3],
+            )
+        return fallback

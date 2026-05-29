@@ -29,11 +29,12 @@ import logging
 import os
 import time
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, TypeVar
 
 import httpx
 from openai import OpenAI, AsyncOpenAI
 from openai import APIError, APITimeoutError, RateLimitError, APIConnectionError
+from pydantic import BaseModel
 
 from config import (
     AIRCHINA_API_KEY,
@@ -364,3 +365,109 @@ async def call_llm_chat(
         f"AI 服务暂时全部不可用(已尝试 {len(chain)} 个云端模型 + Ollama 兜底)。"
         f"最后错误:{err_type}: {err_text[:200]}"
     )
+
+
+# ── Structured output helper (since N2) ─────────────────────────────────────
+
+T_Model = TypeVar("T_Model", bound=BaseModel)
+
+
+async def call_llm_structured(
+    messages: list[dict[str, Any]],
+    model: type[T_Model],
+    *,
+    preferred_model: str | None = None,
+    scene: str = "structured",
+    fallback: T_Model | None = None,
+    max_retries: int = 3,
+    timeout: float = 30.0,
+    try_json_mode: bool = True,
+    **kwargs: Any,
+) -> T_Model | None:
+    """Resilient chat-completion + strict Pydantic schema parsing.
+
+    Combines:
+      - call_llm_chat's retry / breaker / fallback chain
+      - utils.llm_extract.extract_structured's defensive JSON parsing
+      - OpenAI's response_format={"type":"json_object"} when supported
+
+    Failure modes — all return `fallback`, never a half-valid model:
+      - LLM returned non-JSON / markdown-wrapped JSON
+      - LLM returned valid JSON but schema mismatch
+      - LLM returned narrative with JSON embedded (gets auto-extracted)
+      - LLM call itself raised (after exhausting fallback chain)
+
+    Args:
+        messages: chat messages
+        model: Pydantic BaseModel subclass defining expected schema
+        scene: telemetry tag (e.g. "training_meta", "compliance_extract")
+        fallback: returned on ANY parsing/validation failure (default None)
+        try_json_mode: if True, attempt response_format={"type":"json_object"};
+                       silently retry without it if the model rejects the format
+                       (some non-OpenAI providers don't support it)
+
+    Returns:
+        Validated `model` instance, or `fallback`.
+    """
+    # Lazy import to avoid circular dependency between llm_client and utils
+    from utils.llm_extract import extract_structured
+
+    call_kwargs = dict(kwargs)
+    if try_json_mode and "response_format" not in call_kwargs:
+        call_kwargs["response_format"] = {"type": "json_object"}
+
+    try:
+        resp = await call_llm_chat(
+            messages,
+            preferred_model=preferred_model,
+            scene=scene,
+            max_retries=max_retries,
+            timeout=timeout,
+            **call_kwargs,
+        )
+    except Exception as exc:
+        # If response_format triggered the failure on the FIRST attempt only,
+        # retry once without it. We detect this by inspecting the error text.
+        text = str(exc).lower()
+        if (
+            try_json_mode
+            and ("response_format" in text or "json_object" in text or "json mode" in text)
+        ):
+            logger.warning(
+                "[call_llm_structured/%s] provider rejected JSON mode; retrying without it",
+                scene,
+            )
+            call_kwargs.pop("response_format", None)
+            try:
+                resp = await call_llm_chat(
+                    messages,
+                    preferred_model=preferred_model,
+                    scene=scene,
+                    max_retries=max_retries,
+                    timeout=timeout,
+                    **call_kwargs,
+                )
+            except Exception:
+                logger.warning(
+                    "[call_llm_structured/%s] retry without json_mode also failed",
+                    scene,
+                )
+                return fallback
+        else:
+            logger.warning(
+                "[call_llm_structured/%s] LLM call failed: %s: %s",
+                scene, type(exc).__name__, str(exc)[:200],
+            )
+            return fallback
+
+    # Extract raw content from OpenAI ChatCompletion response
+    try:
+        raw = resp.choices[0].message.content
+    except (AttributeError, IndexError, TypeError) as exc:
+        logger.warning(
+            "[call_llm_structured/%s] cannot read response.choices[0].message.content: %s",
+            scene, exc,
+        )
+        return fallback
+
+    return extract_structured(raw, model, fallback=fallback, scene=scene)

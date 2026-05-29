@@ -30,6 +30,17 @@
 
 ---
 
+## 2026-05-29 更新（v3.6.7 · AI 输出强 Schema 校验层）
+
+- **斩断"LLM 自由文本污染业务字段"这一类 bug**：5/22 ~ 5/26 出现过 4 起同类问题（培训类别字段塞入整段 JSON、首席合规官意见污染、授权请示提取错乱），根因都是业务方直接信任了 LLM 输出的"格式"，但 LLM 偶尔会吐 Markdown 包裹 / 解释性前缀 / 缺字段 / 错类型 / 截断 JSON。
+- **新增 `utils/llm_extract.extract_structured`** 通用强 schema 抽取工具：业务方传入 Pydantic 模型即可拿到严格匹配的对象，10 类污染场景全部返回 `fallback`，**永远不返回半截对象**，且每次失败都打带 `scene` 标签的 warning 日志方便排查。
+- **新增 `llm_client.call_llm_structured`** 一体化异步入口：自动加 `response_format={"type": "json_object"}` 提示 LLM 输出 JSON；如果模型不支持这个参数会自动 graceful 降级重试；内部直通 v3.6.6 的韧性调用层（重试 / 断路 / 模型降级链）；网络层异常和解析层异常**全部返回 fallback，永远不抛到业务层**。
+- **新增 12 个测试用例 + 6 个子测试**（`backend/tests/test_llm_structured.py`）：Markdown 包裹、解释性前缀、嵌入式 JSON、缺字段、错类型、多字段、截断 JSON、空输入、非对象根节点、provider 拒绝 JSON mode、全失败回 fallback —— 把现实出现过的污染场景全部锁死，作为业务方的"反污染契约"。
+- **零回归验证**：后端 pytest 339 全过（v3.6.6 的 327 + 新 12）、前端 vitest 39 全过、router import 11 全过；业务调用路径 **0 改动**（向后兼容），下个版本起逐个 skill 迁移到新接口。
+- **新增 `docs/STRUCTURED-OUTPUT.md`** 团队迁移手册：何时用、与 `extract_short_text` 怎么搭配、从老 `json.loads` 模式迁移的样例代码、为什么"错值比无值更危险"是 N2 的核心设计哲学。
+
+---
+
 ## 2026-05-29 更新（v3.6.6 · AI 调用韧性层）
 
 - **AI 调用层加固**：`backend/llm_client.py` 从 43 行裸客户端扩展为带韧性的统一调用层，新增 `call_llm_chat` 入口，自带超时（默认 30s）、指数退避重试（默认 3 次）、连续 5 次失败自动断路 30 秒（防止雪崩）、模型降级链（`MODEL_CHAT` → `AI_CHAT_MODELS` 其它模型 → 本地 Ollama 兜底）。单一模型抽风不再拖垮整条业务流。

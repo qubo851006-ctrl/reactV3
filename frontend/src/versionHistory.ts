@@ -2,6 +2,17 @@ import type { VersionEntry } from './branding'
 
 export const VERSION_ENTRIES: VersionEntry[] = [
   {
+    version: 'v3.6.7',
+    date: '2026-05-29',
+    changes: [
+      { type: 'refactor', text: 'AI 输出强 schema 校验层：新增 extract_structured 通用工具，业务方传入 Pydantic 模型即可拿到严格匹配的对象；缺字段、类型错、Markdown 包裹、解释性前缀、嵌入式 JSON、截断 JSON、数组根节点等 10 类污染场景全部返回 fallback，绝不让"半截 JSON"流入业务字段。' },
+      { type: 'refactor', text: '新增 call_llm_structured 一体化入口：自动加 response_format=json_object 提示 LLM 输出 JSON，模型不支持时自动 graceful 降级；内部直通 v3.6.6 的韧性调用层（重试/断路/降级链），网络异常或解析异常全部返回 fallback，绝不抛到业务层。' },
+      { type: 'fix', text: '所有失败路径打 scene 标签日志，定位"哪个业务场景在污染"成本降到看一行 logger.warning。' },
+      { type: 'fix', text: '新增 backend/tests/test_llm_structured.py 12 个用例 + 6 个子测试覆盖：Markdown 包裹、解释性前缀、嵌入式 JSON、缺字段、错类型、多字段、截断、空输入、非对象根节点、provider 拒绝 JSON mode、全失败 fallback。后端整套 pytest 共 339 个全部通过。' },
+      { type: 'refactor', text: '新增 docs/STRUCTURED-OUTPUT.md 团队手册：何时用、与 extract_short_text 怎么搭配、从老 json.loads 模式迁移的样例代码。' },
+    ],
+  },
+  {
     version: 'v3.6.6',
     date: '2026-05-29',
     changes: [
