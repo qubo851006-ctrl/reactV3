@@ -2,6 +2,15 @@ import type { VersionEntry } from './branding'
 
 export const VERSION_ENTRIES: VersionEntry[] = [
   {
+    version: 'v3.6.5',
+    date: '2026-05-29',
+    changes: [
+      { type: 'refactor', text: '主业务数据库引入 alembic 迁移管理：以后增删字段都有可重放、可回滚的脚本，告别上线时人肉改 SQL；当前 MVP PostgreSQL 已 stamp 为 baseline，业务数据 0 改动。' },
+      { type: 'refactor', text: '迁移环境自动识别 SQLite 与 PostgreSQL，本地开发和生产共用一份迁移脚本；llm_audit 子系统的 llm_traces / llm_traces_archive 通过 include_object 过滤跳过，不会被误判为多余表删除。' },
+      { type: 'refactor', text: '新增 docs/MIGRATIONS.md 团队迁移手册：加字段三步走、SQLite vs PG 兼容性说明、常见故障速查。' },
+    ],
+  },
+  {
     version: 'v3.6.4',
     date: '2026-05-26',
     changes: [

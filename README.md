@@ -30,6 +30,17 @@
 
 ---
 
+## 2026-05-29 更新（v3.6.5 · 数据库迁移基础设施）
+
+- **主业务数据库引入 alembic 迁移管理**：新增 `backend/alembic.ini` + `backend/migrations/`，以后任何模型字段改动都生成可重放、可回滚的迁移脚本，告别上线时人肉改 SQL 的赌博式升级。
+- **当前 MVP PostgreSQL 已 stamp baseline**（版本号 `37d6fb9c6e53`）：本次只是给现网库挂上"版本号锚点"，业务表 0 改动（前后对比每表 count 完全一致：`audit_logs=10 / llm_traces=736 / users=1 / ...`），新增一张 `alembic_version` 元数据表存版本号。
+- **跨数据库兼容**：`migrations/env.py` 自动识别 SQLite 与 PostgreSQL，启用 `render_as_batch=True` 让本地 SQLite 也能跑同一份迁移脚本，本地开发零成本。
+- **避免误删 llm_audit 表**：`llm_traces` / `llm_traces_archive` 实际归 `llm_audit` 子系统管，本次通过 `include_object` 过滤器主动跳过，autogenerate 不会再"以为"它们是多余表想删。
+- **新增团队迁移手册** `docs/MIGRATIONS.md`：加字段三步走、SQLite vs PG 兼容性说明、常见故障速查（GBK 编码、路径报错、过滤失效等）。
+- **验证覆盖**：后端 pytest 319 / frontend vitest 39 / 真实 PG 读写冒烟 4 / router import 11 全部通过；改动对业务功能 0 影响。
+
+---
+
 ## 2026-05-21 更新（登录页改版 · 国航品牌融合）
 
 - **登录页全面改版**：深色玻璃拟态 + 左右分屏布局。左侧玻璃登录卡保留全部功能（人员选择 / 钉钉 SSO / 短码登录 / SSO 状态提示），右侧大幅展示「中国航空集团建设开发有限公司」主标识 + 「法度云图」白→靛→紫渐变大字 + 副标「法务智能工具集」+ 版本号。左上角小 LOGO（白底圆角卡 + 柔光底盘）+ 沉浸式背景（网格点阵 + 双层漂浮光斑 + 顶部光带 + 渐入分层动画）。
