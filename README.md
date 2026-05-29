@@ -40,6 +40,7 @@
 - **eslint.config.js 调整**：React 19 新规则 `react-hooks/set-state-in-effect` 在历史代码里有 3 处触发，先降级为 `warn` 让 CI 能跑起来，保留 warning 提示新代码不要新增这类用法（留 v3.6.9+ 单独治理 PR）。
 - **README 顶部加 CI 徽章**，一眼可见 master 当前状态；新增 `docs/CI.md` 说明当前跑什么、不跑什么、本地复现失败方法、branch protection 配置步骤、未来扩展路线（backend ruff / pre-commit hooks / Playwright workflow / 测试覆盖率上报）。
 - **不在 CI 范围内**：Playwright E2E（浏览器下载 ~150MB 慢且 spec 全 mock 后端）、backend ruff 静态检查（需历史代码先治理）、check:branding（需本地资源文件）；这些都在 `docs/CI.md` 里明确标注了排除理由。
+- **落地过程中修复的两个真问题**：① pytest 此前未在任何依赖文件里声明（本地靠全局安装才跑得起来），CI 干净环境装完依赖后 `python -m pytest` 直接失败 —— 新增 `backend/requirements-dev.txt` 显式声明测试依赖，生产 `requirements.txt` 保持纯净；② `AdminCenterPanel` 后台任务测试用同步 `getByText` 断言异步 `useEffect` 渲染的列表，在 CI 慢节点偶发失败 —— 改为 `await findByText`，并给 frontend job 固定 `TZ=Asia/Shanghai` 避免日期断言在 UTC 环境漂移。
 
 ---
 

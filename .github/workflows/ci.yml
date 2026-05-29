@@ -31,9 +31,12 @@ jobs:
         working-directory: backend
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          # CI-only helper: surface pytest failures as GitHub annotations
-          pip install pytest pytest-github-actions-annotate-failures
+          # Production deps + test deps (pytest lives in requirements-dev.txt).
+          pip install -r requirements.txt -r requirements-dev.txt
+          # CI-only display helper: turns pytest failures into GitHub
+          # annotations. Not a test dependency, so it stays out of
+          # requirements-dev.txt and is installed only here.
+          pip install pytest-github-actions-annotate-failures
 
       - name: Run pytest
         working-directory: backend

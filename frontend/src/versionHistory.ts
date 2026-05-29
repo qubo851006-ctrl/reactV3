@@ -10,6 +10,8 @@ export const VERSION_ENTRIES: VersionEntry[] = [
       { type: 'refactor', text: 'eslint.config.js 把 React 19 新规则 react-hooks/set-state-in-effect 降为 warn，避免历史代码批量返工阻塞 CI；同时保留 warning 提示新代码不要新增这类用法。' },
       { type: 'refactor', text: '新增 docs/CI.md：当前跑什么、不跑什么、本地复现失败、branch protection 配置步骤、未来扩展路线（ruff / pre-commit / Playwright workflow）。' },
       { type: 'refactor', text: 'README 顶部加 CI 徽章，一眼可见 master 状态。' },
+      { type: 'fix', text: '补齐缺失的测试依赖：pytest 此前未在任何依赖文件里声明（本地靠全局安装才跑得起来），导致 CI 干净环境装完依赖后 python -m pytest 直接失败。新增 backend/requirements-dev.txt 显式声明测试依赖，生产 requirements.txt 保持纯净。' },
+      { type: 'fix', text: '修复 AdminCenterPanel 后台任务测试在 CI 慢节点上的偶发失败：getByText 是同步断言，但任务列表通过 useEffect 异步渲染，改为 await findByText 等待渲染完成；CI frontend job 固定 TZ=Asia/Shanghai 避免日期断言在 UTC 环境漂移。' },
     ],
   },
   {

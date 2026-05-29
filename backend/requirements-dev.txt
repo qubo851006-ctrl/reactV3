@@ -1,0 +1,10 @@
+# Test / development-only dependencies.
+# Production (requirements.txt) stays free of test tooling.
+#
+# Install both for local test runs:
+#   pip install -r requirements.txt -r requirements-dev.txt
+#
+# Then:
+#   python -m pytest tests/ -q
+
+pytest==9.0.3
