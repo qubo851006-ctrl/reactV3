@@ -37,7 +37,12 @@ jobs:
         working-directory: backend
         # No real credentials needed: every test mocks the LLM client and the
         # alembic env.py falls back to SQLite when APP_DATABASE_URL is unset.
-        run: python -m pytest tests/ -q --tb=short
+        # -v gives one line per test so CI failures are diagnosable from the
+        # public-anonymous API (annotations don't include log content).
+        env:
+          PYTHONUNBUFFERED: '1'
+          PYTHONIOENCODING: 'utf-8'
+        run: python -m pytest tests/ -v --tb=long -ra
 
   frontend:
     name: Frontend (lint + vitest + build)
@@ -64,7 +69,9 @@ jobs:
 
       - name: Unit tests (vitest)
         working-directory: frontend
-        run: npm run test
+        env:
+          TZ: Asia/Shanghai  # match local dev so date/locale-sensitive tests don't flake
+        run: npm run test -- --reporter=verbose
 
       - name: Build (tsc + vite)
         working-directory: frontend

@@ -74,8 +74,8 @@ describe('AdminCenterPanel', () => {
     fireEvent.click(screen.getByText('后台任务'))
 
     await waitFor(() => expect(listBackgroundTasks).toHaveBeenCalledWith(100))
-    expect(screen.getByText('task_1')).toBeInTheDocument()
-    expect(screen.getByText('ledger_merge')).toBeInTheDocument()
+    expect(await screen.findByText('task_1')).toBeInTheDocument()
+    expect(await screen.findByText('ledger_merge')).toBeInTheDocument()
   })
 
   it('launches existing admin panels from tabs', () => {
