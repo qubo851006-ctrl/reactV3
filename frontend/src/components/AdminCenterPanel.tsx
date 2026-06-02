@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
-import { listBackgroundTasks, type BackgroundTask } from '../api'
+import { listBackgroundTasks, listAuditLogs, type BackgroundTask, type AuditLogEntry } from '../api'
 import OpsHealthPanel from './OpsHealthPanel'
 
-type TabKey = 'overview' | 'tasks' | 'users' | 'dingtalk' | 'ai'
+type TabKey = 'overview' | 'tasks' | 'audit' | 'users' | 'dingtalk' | 'ai'
 
 interface Props {
   open: boolean
@@ -15,6 +15,7 @@ interface Props {
 const TABS: Array<{ key: TabKey; label: string }> = [
   { key: 'overview', label: '系统健康' },
   { key: 'tasks', label: '后台任务' },
+  { key: 'audit', label: '操作审计' },
   { key: 'users', label: '用户' },
   { key: 'dingtalk', label: '钉钉' },
   { key: 'ai', label: 'AI 质量' },
@@ -66,6 +67,7 @@ export default function AdminCenterPanel({ open, onClose, onOpenUsers, onOpenDin
           <main className="min-w-0 flex-1 overflow-y-auto">
             {tab === 'overview' && <EmbeddedOpsHealth />}
             {tab === 'tasks' && <TaskListPanel />}
+            {tab === 'audit' && <AuditLogPanel />}
             {tab === 'users' && (
               <LaunchPanel
                 title="用户管理"
@@ -183,6 +185,78 @@ function TaskListPanel() {
             <div className="mt-2 text-slate-400">{task.message || '-'}</div>
             {task.error && <div className="mt-1 break-words text-red-300">{task.error}</div>}
             <div className="mt-1 text-slate-600">{formatTime(task.finished_at || task.updated_at || task.created_at)}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function AuditLogPanel() {
+  const [logs, setLogs] = useState<AuditLogEntry[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [actionFilter, setActionFilter] = useState('')
+
+  async function load(action = actionFilter) {
+    setLoading(true)
+    setError('')
+    try {
+      setLogs(await listAuditLogs(action.trim(), 200))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '操作审计加载失败')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void load('')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  return (
+    <div className="space-y-4 p-5">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-sm font-semibold text-white">操作审计</div>
+          <div className="mt-1 text-xs text-slate-500">谁在何时对什么做了什么。最近 200 条，登录、台账写入、培训归档、授权请示等关键操作均留痕。</div>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <input
+            value={actionFilter}
+            onChange={e => setActionFilter(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') void load() }}
+            placeholder="按操作类型筛选"
+            className="w-32 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 placeholder:text-slate-600 focus:border-indigo-500 focus:outline-none"
+          />
+          <button onClick={() => void load()} disabled={loading} className="text-xs text-indigo-300 hover:text-indigo-200 disabled:opacity-50">
+            {loading ? '查询中' : '查询'}
+          </button>
+        </div>
+      </div>
+
+      {error && <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-300">{error}</div>}
+
+      <div className="overflow-hidden rounded-xl border border-slate-700/60">
+        {logs.length === 0 ? (
+          <div className="px-3 py-10 text-center text-xs text-slate-600">{loading ? '正在加载操作审计' : '暂无操作记录'}</div>
+        ) : logs.map(log => (
+          <div key={log.id} className="border-b border-slate-800 px-3 py-3 text-xs last:border-b-0">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <span className="font-medium text-slate-200">{log.user_name || (log.user_id != null ? `用户#${log.user_id}` : '系统')}</span>
+                <span className="ml-2 rounded-full border border-slate-600/40 bg-slate-700/30 px-2 py-0.5 text-slate-300">{log.action}</span>
+              </div>
+              <span className="shrink-0 text-slate-600">{formatTime(log.created_at)}</span>
+            </div>
+            <div className="mt-2 break-words text-slate-400">{log.summary || '-'}</div>
+            {(log.target_type || log.target_id) && (
+              <div className="mt-1 text-slate-600">
+                对象：{log.target_type || '-'}{log.target_id ? ` / ${log.target_id}` : ''}
+              </div>
+            )}
+            {log.ip_address && <div className="mt-1 text-slate-600">IP：{log.ip_address}</div>}
           </div>
         ))}
       </div>

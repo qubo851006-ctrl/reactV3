@@ -2,6 +2,14 @@ import type { VersionEntry } from './branding'
 
 export const VERSION_ENTRIES: VersionEntry[] = [
   {
+    version: 'v3.6.13',
+    date: '2026-06-02',
+    changes: [
+      { type: 'feat', text: '操作审计查询前端:管理员中心新增"操作审计"标签页,可查看"谁在何时对什么做了什么"。展示操作人、操作类型、摘要、目标对象、IP 和时间,支持按操作类型关键词筛选,最近 200 条。登录、台账写入、培训归档、授权请示等关键操作此前已落库但只能查数据库,现在管理员前端直接可查。' },
+      { type: 'feat', text: '后端 /api/admin/audit-logs 接口增强:补齐 user_name(批量 join 避免 N+1)、target_type/target_id 字段,新增 action 关键词筛选和 limit 参数(上限 500)。' },
+    ],
+  },
+  {
     version: 'v3.6.12',
     date: '2026-06-02',
     changes: [

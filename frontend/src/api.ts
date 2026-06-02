@@ -394,6 +394,28 @@ export async function listBackgroundTasks<T = unknown>(limit = 50): Promise<Back
   return d.tasks ?? []
 }
 
+export interface AuditLogEntry {
+  id: number
+  user_id: number | null
+  user_name: string | null
+  action: string
+  target_type: string | null
+  target_id: string | null
+  summary: string
+  ip_address: string | null
+  created_at: string
+}
+
+export async function listAuditLogs(action = '', limit = 200): Promise<AuditLogEntry[]> {
+  const params = new URLSearchParams()
+  if (action) params.set('action', action)
+  params.set('limit', String(limit))
+  const r = await apiFetch(`${BASE}/admin/audit-logs?${params.toString()}`)
+  if (!r.ok) throw new Error(await r.text())
+  const d = await r.json() as { logs?: AuditLogEntry[] }
+  return d.logs ?? []
+}
+
 export function downloadMergedExcel(resultId = '') {
   const suffix = resultId ? `?result_id=${encodeURIComponent(resultId)}` : ''
   window.open(`${BASE}/ledger-merge/download${suffix}`, '_blank')

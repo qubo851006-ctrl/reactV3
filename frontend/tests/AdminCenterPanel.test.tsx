@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { listBackgroundTasks } from '../src/api'
+import { listBackgroundTasks, listAuditLogs } from '../src/api'
 import AdminCenterPanel from '../src/components/AdminCenterPanel'
 
 vi.mock('../src/api', async () => {
@@ -9,6 +9,7 @@ vi.mock('../src/api', async () => {
   return {
     ...actual,
     listBackgroundTasks: vi.fn(),
+    listAuditLogs: vi.fn(),
   }
 })
 
@@ -58,6 +59,19 @@ describe('AdminCenterPanel', () => {
         finished_at: '2026-05-21T09:01:00Z',
       },
     ])
+    vi.mocked(listAuditLogs).mockResolvedValue([
+      {
+        id: 1,
+        user_id: 1,
+        user_name: '张三',
+        action: 'ledger_write',
+        target_type: 'case',
+        target_id: 'c1',
+        summary: '写入案件台账',
+        ip_address: '10.0.0.1',
+        created_at: '2026-05-21T09:00:00Z',
+      },
+    ])
   })
 
   it('opens on system health tab', async () => {
@@ -76,6 +90,29 @@ describe('AdminCenterPanel', () => {
     await waitFor(() => expect(listBackgroundTasks).toHaveBeenCalledWith(100))
     expect(await screen.findByText('task_1')).toBeInTheDocument()
     expect(await screen.findByText('ledger_merge')).toBeInTheDocument()
+  })
+
+  it('shows operation audit log tab', async () => {
+    renderPanel()
+
+    fireEvent.click(screen.getByText('操作审计'))
+
+    await waitFor(() => expect(listAuditLogs).toHaveBeenCalled())
+    expect(await screen.findByText('张三')).toBeInTheDocument()
+    expect(await screen.findByText('ledger_write')).toBeInTheDocument()
+    expect(await screen.findByText('写入案件台账')).toBeInTheDocument()
+  })
+
+  it('filters audit logs by action keyword', async () => {
+    renderPanel()
+    fireEvent.click(screen.getByText('操作审计'))
+    await waitFor(() => expect(listAuditLogs).toHaveBeenCalled())
+
+    const input = screen.getByPlaceholderText('按操作类型筛选')
+    fireEvent.change(input, { target: { value: 'ledger' } })
+    fireEvent.click(screen.getByText('查询'))
+
+    await waitFor(() => expect(listAuditLogs).toHaveBeenCalledWith('ledger', 200))
   })
 
   it('launches existing admin panels from tabs', () => {

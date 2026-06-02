@@ -408,19 +408,39 @@ def revoke_sessions(
 
 
 @router.get("/audit-logs")
-def audit_logs(db: DBSession = Depends(get_db), _: User = Depends(require_admin)):
-    logs = (
-        db.query(AuditLog)
-        .order_by(AuditLog.created_at.desc())
-        .limit(200)
-        .all()
-    )
+def audit_logs(
+    action: str | None = None,
+    limit: int = 200,
+    db: DBSession = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """操作审计日志查询(管理员)。
+
+    支持按 action 关键词过滤、限制条数。返回 user_name(批量 join 避免 N+1)
+    及 target_type/target_id,供前端审计查询页展示"谁在何时对什么做了什么"。
+    """
+    limit = max(1, min(limit, 500))
+    query = db.query(AuditLog).order_by(AuditLog.created_at.desc())
+    if action:
+        query = query.filter(AuditLog.action.ilike(f"%{action}%"))
+    logs = query.limit(limit).all()
+
+    # 批量取用户名,避免逐行查询(N+1)
+    user_ids = {l.user_id for l in logs if l.user_id is not None}
+    names: dict[int, str] = {}
+    if user_ids:
+        for u in db.query(User).filter(User.id.in_(user_ids)).all():
+            names[u.id] = u.name
+
     return {
         "logs": [
             {
                 "id": l.id,
                 "user_id": l.user_id,
+                "user_name": names.get(l.user_id) if l.user_id is not None else None,
                 "action": l.action,
+                "target_type": l.target_type,
+                "target_id": l.target_id,
                 "summary": l.summary,
                 "ip_address": l.ip_address,
                 "created_at": l.created_at,
