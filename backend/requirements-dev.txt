@@ -8,3 +8,4 @@
 #   python -m pytest tests/ -q
 
 pytest==9.0.3
+pytest-cov==6.0.0   # coverage: python -m pytest --cov=. --cov-report=term-missing

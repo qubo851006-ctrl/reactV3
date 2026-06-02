@@ -2,6 +2,14 @@ import type { VersionEntry } from './branding'
 
 export const VERSION_ENTRIES: VersionEntry[] = [
   {
+    version: 'v3.6.11',
+    date: '2026-06-02',
+    changes: [
+      { type: 'refactor', text: '接入测试覆盖率统计:后端 pytest-cov(配 .coveragerc 排除测试/迁移),前端 @vitest/coverage-v8 + npm run test:coverage。基线——后端业务代码 63%、前端 30%。' },
+      { type: 'refactor', text: '新增 docs/COVERAGE.md 记录基线、运行方法和已知盲区:excel_merger.py(三台账合并核心计算)仅 7% 覆盖最该补,mcp_client/write_excel/pdf_reader 等旧工具 0%。当前不强制阈值,作为后续重构的安全网与"不要倒退"参照。' },
+    ],
+  },
+  {
     version: 'v3.6.10',
     date: '2026-05-29',
     changes: [

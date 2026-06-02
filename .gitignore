@@ -60,3 +60,9 @@ wheels/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Coverage artifacts
+htmlcov/
+coverage/
+.coverage
+coverage.xml

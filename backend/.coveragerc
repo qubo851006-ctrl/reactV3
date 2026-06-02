@@ -1,0 +1,17 @@
+# Coverage config for the backend.
+#   python -m pytest --cov=. --cov-report=term-missing
+#
+# Excludes test files, migrations, and caches so the percentage reflects
+# real business-code coverage, not the test suite covering itself.
+[run]
+omit =
+    tests/*
+    migrations/*
+    */__pycache__/*
+    */site-packages/*
+
+[report]
+exclude_lines =
+    pragma: no cover
+    if __name__ == .__main__.:
+    raise NotImplementedError
