@@ -2,6 +2,14 @@ import type { VersionEntry } from './branding'
 
 export const VERSION_ENTRIES: VersionEntry[] = [
   {
+    version: 'v3.6.12',
+    date: '2026-06-02',
+    changes: [
+      { type: 'perf', text: '前端打包拆分:vite manualChunks 把重库拆成独立 vendor chunk,主应用包从 1.1MB 降到 220KB(gzip 63KB)。recharts 图表(charts 332KB)、html2canvas(200KB)、react-vendor(178KB)、react-markdown(154KB)各自独立,更新频率低的库可被浏览器独立缓存,首屏并行下载也更快。' },
+      { type: 'perf', text: 'chunkSizeWarningLimit 调到 700KB,build 不再因单包过大报警告。进一步的路由级懒加载(React.lazy 让 charts 真正按需)留作后续可选优化。' },
+    ],
+  },
+  {
     version: 'v3.6.11',
     date: '2026-06-02',
     changes: [

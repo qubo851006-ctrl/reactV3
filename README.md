@@ -32,6 +32,17 @@
 
 ---
 
+## 2026-06-02 更新（v3.6.12 · 前端打包拆分）
+
+- **主包从 1.1MB → 220KB**（gzip 63KB）：`vite.config.ts` 加 `manualChunks`，把重库拆成独立 vendor chunk。
+- **拆出的 chunk**：`charts`（recharts + d3）332KB / `html2canvas` 200KB / `react-vendor` 178KB / `markdown`（react-markdown 生态）154KB —— 这些更新频率低，浏览器可独立缓存，且首屏并行下载比单个大包快。
+- `chunkSizeWarningLimit` 调到 700KB，build 不再因单包过大报警告。
+- **纯 build 配置**：vitest 用独立 `vitest.config.ts`、e2e 用 dev server，均不受影响，零运行时风险。
+- **后续可选**：路由级 `React.lazy` 懒加载（让 `charts` 等真正按需、不进首屏），收益是首屏再省 ~146KB gzip，但需改 App.tsx 多处 + Suspense + 重跑 e2e，本次未做。
+- 对应 2026-05-29 健壮性体检报告优化清单的 #4。
+
+---
+
 ## 2026-06-02 更新（v3.6.11 · 测试覆盖率统计）
 
 - **接入覆盖率工具**：后端 `pytest-cov`（配 `backend/.coveragerc` 排除测试/迁移/缓存），前端 `@vitest/coverage-v8` + `npm run test:coverage`。
