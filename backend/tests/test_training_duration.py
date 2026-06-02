@@ -141,7 +141,7 @@ class ExcelWriterNewFileTests(unittest.TestCase):
         import openpyxl
         from utils.excel_writer import HEADERS, append_record
 
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = Path(tmpdir) / "培训统计表.xlsx"
             with patch("utils.excel_writer.EXCEL_PATH", str(path)):
                 append_record(
@@ -164,7 +164,7 @@ class ExcelWriterNewFileTests(unittest.TestCase):
         import openpyxl
         from utils.excel_writer import append_record
 
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = Path(tmpdir) / "培训统计表.xlsx"
             with patch("utils.excel_writer.EXCEL_PATH", str(path)):
                 append_record(
@@ -189,7 +189,7 @@ class ExcelWriterNewFileTests(unittest.TestCase):
         import openpyxl
         from utils.excel_writer import append_record
 
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = Path(tmpdir) / "培训统计表.xlsx"
             with patch("utils.excel_writer.EXCEL_PATH", str(path)):
                 append_record(
@@ -215,7 +215,7 @@ class ExcelWriterNewFileTests(unittest.TestCase):
         import openpyxl
         from utils.excel_writer import append_record
 
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = Path(tmpdir) / "培训统计表.xlsx"
             with patch("utils.excel_writer.EXCEL_PATH", str(path)):
                 append_record(
@@ -279,7 +279,7 @@ class MigrateHeadersTests(unittest.TestCase):
         import openpyxl
         from utils.excel_writer import append_record
 
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = Path(tmpdir) / "培训统计表.xlsx"
             self._make_old_excel(path)
 
@@ -305,7 +305,7 @@ class MigrateHeadersTests(unittest.TestCase):
         import openpyxl
         from utils.excel_writer import append_record
 
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = Path(tmpdir) / "培训统计表.xlsx"
             self._make_old_excel(path)
 
@@ -333,7 +333,7 @@ class MigrateHeadersTests(unittest.TestCase):
         import openpyxl
         from utils.excel_writer import append_record
 
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             path = Path(tmpdir) / "培训统计表.xlsx"
 
             with patch("utils.excel_writer.EXCEL_PATH", str(path)):

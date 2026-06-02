@@ -107,7 +107,7 @@ class AuthRequestDrafterTests(unittest.TestCase):
                 "authorization_scope": "授权内容A",
             }
         }
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             ledger_path = str(Path(tmpdir) / "ledger.xlsx")
             record_to_ledger(extracted, {"handler": "张三", "seal": "公章", "copies": "3"}, "旧标题", ledger_path)
             record_to_ledger(
