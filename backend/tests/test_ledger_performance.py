@@ -113,13 +113,14 @@ class LedgerPerformanceTests(unittest.TestCase):
 
         with patch.object(auth_request_drafter, "draft_auth_request", side_effect=lambda info: tracked_result("request")), \
              patch.object(auth_request_drafter, "draft_auth_letter", side_effect=lambda info: tracked_result("letter")):
-            start = time.perf_counter()
             docs = auth_request_drafter.draft_auth_documents({"项目名称": "测试项目"})
-            elapsed = time.perf_counter() - start
 
         self.assertEqual(docs, {"auth_content": "request", "letter_content": "letter"})
+        # 并发性由 max_active >= 2 确凿证明(两个任务曾同时活跃)。
+        # 原 assertLess(elapsed, 0.11) 是基于 wall-clock 的脆弱断言:机器负载高时
+        # (如 pre-push 钩子里 pytest 跑)线程调度开销会让并发耗时也偶发 >0.11s,
+        # 造成无关 commit 被钩子误拦,已移除。
         self.assertGreaterEqual(max_active, 2)
-        self.assertLess(elapsed, 0.11)
 
     def test_ocr_pdf_with_vision_processes_pages_concurrently_and_preserves_order(self):
         import ledger_helpers
