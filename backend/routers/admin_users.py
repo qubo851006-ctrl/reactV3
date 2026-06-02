@@ -17,7 +17,7 @@ from integrations.dingtalk import send_dingtalk_notification
 from integrations.dingtalk.enterprise import get_access_token
 from integrations.dingtalk.org_sync import sync_dingtalk_org
 from llm_audit.db import get_audit_engine
-from models import AuditLog, BackgroundTask, DingTalkSyncLog, NotificationLog, User, UserSession
+from models import AuditLog, BackgroundTask, DingTalkSyncLog, NotificationLog, User
 from runtime_status import STARTED_AT
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])

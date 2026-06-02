@@ -8,7 +8,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
-from typing import AsyncGenerator, Any
+from typing import AsyncGenerator
 
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Form
 from fastapi.responses import StreamingResponse, FileResponse
@@ -450,11 +450,9 @@ def write_ledger_confirm(
         if req.match_idx is not None and 0 <= req.match_idx < len(updated_cases):
             updated_cases[req.match_idx] = req.case_data
             action_text = f"已更新案件「{req.case_data.get('案件名称', '')}」"
-            is_new = False
         else:
             updated_cases.append(req.case_data)
             action_text = f"已新增案件「{req.case_data.get('案件名称', '')}」"
-            is_new = True
 
         json_path = Path(LEDGER_JSON_PATH)
         excel_path = Path(LEDGER_EXCEL_PATH)

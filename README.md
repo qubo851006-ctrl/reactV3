@@ -32,6 +32,16 @@
 
 ---
 
+## 2026-06-02 更新（v3.6.14 · 后端 ruff 静态检查接入）
+
+- **接入 ruff**：保守规则集（pyflakes `F` + pycodestyle `E4/E7/E9`），配置见 `backend/ruff.toml`。默认 100 个历史问题，治理后 `ruff check` 全绿。
+- **治理方式**：删除真正未用的 import 和空 f-string（auto-fix）；门面模块（`ledger_helpers` / `compliance_ledger`，它们 re-export 子模块符号）和测试目录用 `per-file-ignore` 豁免误报；`E402`（import 位置，项目大量用 `sys.path.insert` + 条件 import）和 `E741`（短变量名）合理 ignore；删掉 `ledger.py` 一处死代码变量。
+- **一个被安全网拦下的真问题**：`ruff --fix` 自动删 import 时，险些删掉 `ledger_helpers` / `compliance_ledger` 两个门面模块的 re-export import（本地看似未用、实则转给调用方）。**import smoke + 全套测试当场拦下**，恢复后给这两个文件加了 `per-file-ignore`。印证了「先建安全网再重构」的价值。
+- **接入 CI + pre-push**：CI backend job 在 pytest 前加 `ruff check`；pre-push 钩子第 1 道（最快，~1 秒）。后端 pytest 371 全过。
+- 对应 2026-05-29 健壮性体检报告优化清单的 #7。
+
+---
+
 ## 2026-06-02 更新（v3.6.13 · 操作审计查询前端）
 
 - **管理员中心新增「操作审计」标签页**：可查看"谁在何时对什么做了什么"——操作人、操作类型、摘要、目标对象、IP、时间，支持按操作类型关键词筛选，最近 200 条。登录、台账写入、培训归档、授权请示等关键操作此前已落库（`audit_logs`），但只能查数据库；现在管理员前端直接可查，出事可追溯。

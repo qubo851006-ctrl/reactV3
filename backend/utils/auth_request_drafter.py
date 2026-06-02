@@ -577,7 +577,7 @@ def draft_auth_documents(info: dict[str, Any]) -> dict[str, str]:
 
 def _create_auth_ledger_workbook():
     import openpyxl
-    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.styles import Alignment, Border, Font, Side
 
     wb = openpyxl.Workbook()
     ws = wb.active

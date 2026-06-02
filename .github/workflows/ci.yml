@@ -38,6 +38,10 @@ jobs:
           # requirements-dev.txt and is installed only here.
           pip install pytest-github-actions-annotate-failures
 
+      - name: Lint (ruff)
+        working-directory: backend
+        run: python -m ruff check .
+
       - name: Run pytest
         working-directory: backend
         # No real credentials needed: every test mocks the LLM client and the

@@ -4,7 +4,6 @@ import io
 import json
 import re
 import tempfile
-from pathlib import Path
 
 import openpyxl
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile

@@ -1,0 +1,34 @@
+# Ruff config for the backend.
+#   ruff check .          # lint
+#   ruff check --fix .    # auto-fix the safe ones
+#
+# Conservative starting ruleset: pyflakes (F) + curated pycodestyle errors
+# (E4/E7/E9). Expand once the codebase stays clean. Not enabling E501
+# (line length) or I (import sorting) yet to avoid churn on legacy files.
+line-length = 120
+target-version = "py311"
+
+[lint]
+select = ["E4", "E7", "E9", "F"]
+ignore = [
+    "E402",  # module-import-not-at-top: the project widely uses sys.path.insert
+             # and conditional/lazy imports (env.py, tests, main.py) — legitimate.
+    "E741",  # ambiguous variable name (l/I/O): acceptable in short local helpers.
+]
+
+[lint.per-file-ignores]
+# Test files use fixtures and intentional redefinition patterns.
+"tests/*" = ["F811", "F401"]
+# Alembic migration scaffolding keeps boilerplate imports.
+"migrations/*" = ["F401", "F403"]
+# Facade modules that re-export submodule symbols for their callers — those
+# imports look "unused" locally but are intentional re-exports:
+#   ledger_helpers   -> re-exports ledger_archive (archive_legal_docs, ...)
+#   compliance_ledger -> re-exports compliance_persistence (create_compliance_workbook, ...)
+"ledger_helpers.py" = ["F401"]
+# compliance_ledger also locally defines HEADERS/WORKSHEET_NAME then re-imports
+# the same names from compliance_persistence (intentional facade) — F811.
+"utils/compliance_ledger.py" = ["F401", "F811"]
+# write_excel uses aligned single-line style assignments in a helper
+# (`if font: cell.font = font`) — an intentional compact style.
+"utils/write_excel.py" = ["E701"]

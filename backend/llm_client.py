@@ -28,8 +28,8 @@ import asyncio
 import logging
 import os
 import time
-from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, TypeVar
+from dataclasses import dataclass
+from typing import Any, Callable, TypeVar
 
 import httpx
 from openai import OpenAI, AsyncOpenAI

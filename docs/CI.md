@@ -14,8 +14,9 @@
 |---|---|---|
 | 1. Checkout | actions/checkout@v4 | - |
 | 2. Setup Python 3.11 + pip 缓存 | actions/setup-python@v5 | 缓存 key 跟 `backend/requirements.txt` 内容绑定 |
-| 3. `pip install -r backend/requirements.txt` | - | 首次 ~1 分钟,有缓存时 ~5 秒 |
-| 4. `python -m pytest tests/ -q` | - | **339 个测试** + 6 个子测试 / ~35 秒 |
+| 3. `pip install -r requirements.txt -r requirements-dev.txt` | - | 首次 ~1 分钟,有缓存时 ~5 秒 |
+| 4. `ruff check .`(lint,配置见 `backend/ruff.toml`) | - | ~1 秒 |
+| 5. `python -m pytest tests/ -v` | - | **371 个测试** + 6 个子测试 / ~35 秒 |
 
 **没用真实凭据** —— 全部测试 mock 掉 LLM client,alembic env 在 `APP_DATABASE_URL` 未设时 fallback 到 SQLite。
 
@@ -37,7 +38,6 @@
 | 项 | 为什么不跑 |
 |---|---|
 | Playwright E2E | 浏览器下载 ~150 MB 慢;spec 全 mock 后端,价值低 |
-| Backend ruff/black 静态检查 | 项目历史代码积累的 warning 较多,需要单独治理 PR 再开 |
 | `npm run check:branding` | 需要本地资源文件,CI 上不友好 |
 | Backend alembic migration 命令 | 测试套件本身覆盖了核心路径,不需要再跑 alembic 命令 |
 | 集成测试连真实 PG | 没有 GH Actions secret 配置,跑了也是裸的 |
@@ -165,7 +165,7 @@ $env:SKIP_E2E=1; git push; Remove-Item Env:SKIP_E2E
 
 ## 未来扩展
 
-- [ ] 加 backend ruff 静态检查(需先治理历史代码)
+- [x] ~~加 backend ruff 静态检查~~ 已接入(v3.6.14):ruff.toml 保守规则集(E4/E7/E9/F),门面模块 per-file-ignore,CI + pre-push 钩子都跑
 - [x] ~~本地 pre-push 钩子~~ 已用 git 原生 hook 实现(见上节;比 husky/pre-commit 库更轻,零额外依赖)
 - [ ] 单独的 Playwright workflow,只在 PR 触发,带浏览器缓存
 - [ ] 集成测试 job 连真实 PG(需 GH Actions secret + 临时数据库)

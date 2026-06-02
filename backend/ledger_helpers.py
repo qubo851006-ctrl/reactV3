@@ -819,8 +819,8 @@ def find_matching_case_idx(new_case: dict, existing_cases: list, docs: list = No
         for i, c in enumerate(existing_cases)
     )
     prompt = (
-        f'你是法务专家。判断"新上传文书"是否与"现有台账"中某个案件属于同一案件。\n\n'
-        f'新上传文书信息：\n' + "\n".join(new_lines) +
+        '你是法务专家。判断"新上传文书"是否与"现有台账"中某个案件属于同一案件。\n\n'
+        '新上传文书信息：\n' + "\n".join(new_lines) +
         f'\n\n现有台账（编号: 案件名称 | 主体 | 案由）：\n{summaries}\n\n'
         f'注意：重点比对当事人姓名/公司名称和案由是否一致。\n'
         f'如果找到匹配，只回复编号数字（如：0）。如果没有匹配，回复 -1。不要有其他内容。'

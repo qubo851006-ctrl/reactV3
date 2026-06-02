@@ -2,6 +2,14 @@ import type { VersionEntry } from './branding'
 
 export const VERSION_ENTRIES: VersionEntry[] = [
   {
+    version: 'v3.6.14',
+    date: '2026-06-02',
+    changes: [
+      { type: 'refactor', text: '后端接入 ruff 静态检查:保守规则集(pyflakes F + pycodestyle E4/E7/E9),配置见 backend/ruff.toml。清理历史问题——删除真正未用的 import 和空 f-string;门面模块(ledger_helpers / compliance_ledger,re-export 子模块符号)和测试目录用 per-file-ignore 豁免误报;删掉 ledger.py 一处死代码变量。ruff check 全绿。' },
+      { type: 'refactor', text: 'ruff 接入 CI backend job(pytest 前) + pre-push 钩子(第 1 道,最快)。auto-fix 过程中险些误删两个门面模块的 re-export import,被 import smoke + 全套测试拦下并修正——印证了"先有安全网再动"的价值。后端 pytest 371 全过。' },
+    ],
+  },
+  {
     version: 'v3.6.13',
     date: '2026-06-02',
     changes: [

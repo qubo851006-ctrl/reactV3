@@ -22,7 +22,7 @@ from typing import AsyncIterator
 from openai import AsyncOpenAI
 
 from skills import implementations as _impl_pkg
-from skills.base import Classification, Skill, SkillContext, SkillMeta
+from skills.base import Classification, Skill, SkillMeta
 from skills.classifier import classify
 from skills.tracer import DEFAULT_TRACER, LLMTracer
 

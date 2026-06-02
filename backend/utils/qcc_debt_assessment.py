@@ -19,7 +19,7 @@ from typing import Any
 
 import httpx
 
-from config import QCC_TOKEN, AI_HTTP_VERIFY_SSL
+from config import AI_HTTP_VERIFY_SSL
 
 logger = logging.getLogger(__name__)
 from utils.qcc_mcp_client import (
@@ -381,7 +381,7 @@ def _fmt(v: Any, depth: int = 0) -> str:
     if v is None or v == "" or v == [] or v == {}:
         return "—"
     if isinstance(v, dict) and "_error" in v:
-        return f"*查询异常*"
+        return "*查询异常*"
     if isinstance(v, bool):
         return "是" if v else "否"
     if isinstance(v, (int, float)):
@@ -438,13 +438,13 @@ def format_assessment_markdown(result: dict) -> str:
     amount_str = f"{amount:,.0f} 元" if amount > 0 else "未指定"
 
     parts = [
-        f"## 债务清偿能力评估报告",
+        "## 债务清偿能力评估报告",
         f"> **被评估方**：{name}　**债权金额**：{amount_str}",
         "",
         f"### {emoji} 综合评级：{rating} 级 · {label}",
         "",
-        f"| 项目 | 结论 |",
-        f"|------|------|",
+        "| 项目 | 结论 |",
+        "|------|------|",
         f"| 追偿评级 | **{rating} 级 — {label}** |",
         f"| 预期回收率 | **{low}% — {high}%** |",
         f"| 建议保全金额 | 约 {amount * (low + high) / 200:,.0f} 元（债权金额 × 回收率中位数）|" if amount > 0 else "| 建议保全金额 | 请提供债权金额 |",
