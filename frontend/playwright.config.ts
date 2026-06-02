@@ -4,10 +4,13 @@ export default defineConfig({
   testDir: './tests/e2e',
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
-  // Retry once even locally: mock-mode specs share one vite dev server and a
-  // system browser, so the first cold visit occasionally exceeds the timeout.
-  // A retry runs against an already-warm server and reliably passes.
-  retries: 1,
+  // Retry twice even locally: mock-mode specs share one vite dev server and a
+  // system browser; the first cold visit occasionally exceeds the timeout, and
+  // a single retry was still observed to flake on a slow cold start. Two
+  // retries run against an already-warm server and reliably pass. (This matters
+  // because e2e runs in the pre-push hook — a flake here would block unrelated
+  // pushes.)
+  retries: 2,
   // Single worker: these mock-mode specs share one vite dev server, and running
   // them in parallel causes page-load contention (flaky "element not found").
   // The suite is small and fast, so serial execution is the stable choice.
