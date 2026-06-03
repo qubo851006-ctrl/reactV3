@@ -2,7 +2,7 @@
 
 > 配置文件:`.github/workflows/ci.yml`
 > 触发时机:push 到 master / 对 master 发 PR
-> 当前状态:首版,仅 backend + frontend 两个 job
+> 当前状态:backend + frontend + security-audit 三个 job(security-audit 自 v3.6.19)
 
 ---
 
@@ -30,6 +30,33 @@
 | 4. `npm run lint`(eslint) | - | ~5 秒 |
 | 5. `npm run test`(vitest) | - | **39 个测试** / ~4 秒 |
 | 6. `npm run build`(tsc + vite) | - | ~10 秒 |
+
+### Security-audit job(依赖漏洞巡检 · timeout 10 分钟 · 自 v3.6.19)
+
+| 步骤 | 命令 | 说明 |
+|---|---|---|
+| 1. `pip-audit -r requirements.txt` | 后端生产依赖对 PyPI/OSV 漏洞库 | 任一已知漏洞 → job 失败 |
+| 2. `npm audit --omit=dev --audit-level=high` | 前端生产依赖 | high/critical → job 失败 |
+
+**为什么只查生产依赖**:开发工具(pytest/ruff、vite/vitest/eslint)不随产品部署,排除以免被构建链告警刷屏。
+
+**为什么不进 pre-push 钩子**:漏洞巡检要联网查询漏洞库、且供应链风险是"周期性"而非"每次提交"的关注点;放 CI(+ Dependabot)即可,pre-push 保持快、离线。
+
+**这是真门禁还是参考**:本仓库直接 push 到 master(CI 是 push 后跑),所以 security-audit 红了不会"拦住"提交,但会在 master 上显红 X 提示关注。配合下面的 Dependabot 主动修复,形成"发现 + 修复"闭环。上线前若要更严,可加 branch protection 把它列为必过 check。
+
+### Dependabot(依赖自动巡检 · 自 v3.6.19)
+
+配置:`.github/dependabot.yml`。每周一对三个生态各开一次"有更新/有漏洞"的 PR:
+
+| 生态 | 范围 |
+|---|---|
+| `pip` | `backend/requirements*.txt` |
+| `npm` | `frontend/package.json` + lock |
+| `github-actions` | CI 用到的 action 版本 |
+
+- 安全类更新(security advisory)Dependabot 会优先单独开 PR;非安全的 minor/patch 升级按生态分组合并成一个 PR 减噪。
+- 所有 Dependabot PR 合并前仍走 CI 四门禁把关,不绕过测试。
+- **首次启用需在 GitHub 网页确认**:Settings → Code security → 确认 Dependabot 已开启(推送 dependabot.yml 后通常自动生效)。
 
 ---
 
@@ -167,6 +194,8 @@ $env:SKIP_E2E=1; git push; Remove-Item Env:SKIP_E2E
 
 - [x] ~~加 backend ruff 静态检查~~ 已接入(v3.6.14):ruff.toml 保守规则集(E4/E7/E9/F),门面模块 per-file-ignore,CI + pre-push 钩子都跑
 - [x] ~~本地 pre-push 钩子~~ 已用 git 原生 hook 实现(见上节;比 husky/pre-commit 库更轻,零额外依赖)
+- [x] ~~依赖漏洞扫描~~ 已接入(v3.6.19):pip-audit + npm audit 进 CI security-audit job + Dependabot 每周自动开修复 PR + `tools/audit-deps.ps1` 本地按需跑
 - [ ] 单独的 Playwright workflow,只在 PR 触发,带浏览器缓存
 - [ ] 集成测试 job 连真实 PG(需 GH Actions secret + 临时数据库)
 - [ ] 测试覆盖率上报(codecov 或类似)
+- [ ] 后端静态类型检查(mypy/pyright,渐进式)

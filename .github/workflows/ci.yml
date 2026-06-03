@@ -53,6 +53,44 @@ jobs:
           PYTHONIOENCODING: 'utf-8'
         run: python -m pytest tests/ -v --tb=long -ra
 
+  security-audit:
+    name: Dependency audit (pip-audit + npm audit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: pip-audit (backend production deps)
+        working-directory: backend
+        # Audits the pinned production requirements against the PyPI / OSV
+        # advisory DB. Fails the job on any known vulnerability so a red X
+        # surfaces on master. Dev-only tools (pytest/ruff) don't ship to
+        # production, so only requirements.txt is gated here.
+        run: |
+          python -m pip install --upgrade pip
+          pip install pip-audit
+          pip-audit -r requirements.txt --progress-spinner=off
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: npm audit (frontend production deps)
+        working-directory: frontend
+        # Production deps only, fail on high/critical. Dev deps (vite/vitest/
+        # eslint) never ship to the browser, so they're excluded to avoid
+        # noise from build-toolchain advisories.
+        run: npm audit --omit=dev --audit-level=high
+
   frontend:
     name: Frontend (lint + vitest + build)
     runs-on: ubuntu-latest
