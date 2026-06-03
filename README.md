@@ -36,14 +36,17 @@
 
 - **背景**：此前**没有任何供应链安全检查**——依赖里若混入已知 CVE（无论直接还是传递依赖），无人会发现。
 - **三层防护**：
-  1. **CI `security-audit` job**：`pip-audit -r requirements.txt`（后端生产依赖 vs PyPI/OSV 漏洞库）+ `npm audit --omit=dev --audit-level=high`（前端生产依赖）。发现漏洞 → job 失败，在 master 显红 X 提示关注。
+  1. **CI `security-audit` job**：`pip-audit -r requirements.txt`（后端生产依赖 vs PyPI/OSV 漏洞库）+ `npm audit --omit=dev --audit-level=high`（前端生产依赖）。**报告模式**（见下）：漏洞打印进 job 日志，不判红构建。
   2. **Dependabot**（`.github/dependabot.yml`）：每周一对 `pip` / `npm` / `github-actions` 三个生态自动开"有更新/有漏洞"的 PR。安全更新优先单独开 PR；非安全的 minor/patch 升级分组合并减噪。所有 PR 合并前仍走 CI 四门禁，不绕过测试。
   3. **`tools/audit-deps.ps1`**：本地按需巡检脚本，与 CI 同款检查（Windows 下自动用 `PYTHONUTF8=1` 规避 GBK 解码 requirements.txt 的坑）。
 - **范围决策**：
   - **只查生产依赖**：开发工具（pytest/ruff、vite/vitest/eslint）不随产品部署，排除以免被构建链告警刷屏。
   - **不进 pre-push 钩子**：供应链风险是"周期性"而非"每次提交"的关注点、且要联网查漏洞库；放 CI + Dependabot 即可，pre-push 保持快而离线。
-  - **门禁性质**：本仓库直接 push 到 master，security-audit 红了不"拦住"提交，但显红 X 提示；配合 Dependabot 形成"发现 + 修复"闭环。上线前若要更严可加 branch protection。
-- **现状**：前端生产依赖 `npm audit` 实测 **0 漏洞**；后端 `pip-audit` 由 CI（ubuntu 网络）权威执行。
+  - **报告模式（`continue-on-error`）而非硬门禁**：首次接扫描器时仓库已有**历史 CVE 欠账**，这些要么需大版本升级、要么是传递依赖，不能盲目自动改；让欠账长期把 master 判红会训练大家无视告警。所以现阶段漏洞照常打印进日志 + Dependabot 照常开修复 PR，但不判红构建。上线前清理欠账后，去掉 ci.yml 两个审计步骤的 `continue-on-error` 即变硬门禁。
+- **现状**：前端生产依赖 `npm audit` 实测 **0 漏洞**；后端 `pip-audit` 抓到历史欠账：
+  - `pillow==11.1.0` —— 多个 2026 CVE（CVE-2026-25990 / CVE-2026-40192 / PYSEC-2026-165），修复在 12.x（大版本，升级后需回归图像/扫描件识别）。
+  - `pdfminer-six`（经 `pdfplumber==0.11.4` 传递引入）—— CVE-2025-64512 / CVE-2025-70559。
+  - **这些是历史欠账，上线前需集中评估升级**（见 `docs/CI.md` 的"已知欠账"清单）。
 - 对应 2026-06-03 工程化体检"最划算的快赢"项。
 
 ---

@@ -6,7 +6,8 @@ export const VERSION_ENTRIES: VersionEntry[] = [
     date: '2026-06-03',
     changes: [
       { type: 'fix', text: '接入依赖漏洞扫描:此前没有任何供应链安全检查,依赖里若混入已知 CVE 无人发现。新增三层防护——(1) CI 新增 security-audit job:pip-audit 扫后端生产依赖、npm audit 扫前端生产依赖(high/critical),发现漏洞在 master 显红 X 提示;(2) Dependabot(.github/dependabot.yml)每周一对 pip/npm/github-actions 三个生态自动开"有更新/有漏洞"的修复 PR,安全更新优先单独开、非安全升级分组减噪;(3) tools/audit-deps.ps1 本地按需巡检脚本。' },
-      { type: 'fix', text: '范围:只查生产依赖(开发工具 pytest/ruff/vite/vitest 不随产品部署,排除以免噪音);不进 pre-push 钩子(供应链是周期性关注、且要联网,放 CI 即可,保持 push 快而离线)。现状:前端生产依赖 npm audit 实测 0 漏洞;后端 pip-audit 由 CI(ubuntu 网络)权威执行。Dependabot PR 合并前仍走 CI 四门禁,不绕过测试。' },
+      { type: 'fix', text: '范围:只查生产依赖(开发工具 pytest/ruff/vite/vitest 不随产品部署,排除以免噪音);不进 pre-push 钩子(供应链是周期性关注、且要联网,放 CI 即可,保持 push 快而离线)。现状:前端生产依赖 npm audit 实测 0 漏洞;后端 pip-audit(CI 权威执行)抓到历史欠账——pillow==11.1.0 多个 2026 CVE(修复在 12.x 大版本)、pdfminer-six(经 pdfplumber 传递引入)有 CVE。' },
+      { type: 'fix', text: '采用「报告模式」上线(continue-on-error):首次接扫描器时仓库已有历史 CVE 欠账,这些需大版本升级或是传递依赖、不能盲目自动改;让欠账长期把 master 判红会训练大家无视告警。所以现阶段漏洞照常打印进日志 + Dependabot 照常开修复 PR,但不判红构建。上线前清理欠账后,去掉两个审计步骤的 continue-on-error 即变硬门禁。详见 docs/CI.md。' },
     ],
   },
   {

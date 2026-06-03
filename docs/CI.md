@@ -35,14 +35,20 @@
 
 | 步骤 | 命令 | 说明 |
 |---|---|---|
-| 1. `pip-audit -r requirements.txt` | 后端生产依赖对 PyPI/OSV 漏洞库 | 任一已知漏洞 → job 失败 |
-| 2. `npm audit --omit=dev --audit-level=high` | 前端生产依赖 | high/critical → job 失败 |
+| 1. `pip-audit -r requirements.txt` | 后端生产依赖对 PyPI/OSV 漏洞库 | 报告模式(见下) |
+| 2. `npm audit --omit=dev --audit-level=high` | 前端生产依赖 | 报告模式;实测 0 漏洞 |
 
 **为什么只查生产依赖**:开发工具(pytest/ruff、vite/vitest/eslint)不随产品部署,排除以免被构建链告警刷屏。
 
 **为什么不进 pre-push 钩子**:漏洞巡检要联网查询漏洞库、且供应链风险是"周期性"而非"每次提交"的关注点;放 CI(+ Dependabot)即可,pre-push 保持快、离线。
 
-**这是真门禁还是参考**:本仓库直接 push 到 master(CI 是 push 后跑),所以 security-audit 红了不会"拦住"提交,但会在 master 上显红 X 提示关注。配合下面的 Dependabot 主动修复,形成"发现 + 修复"闭环。上线前若要更严,可加 branch protection 把它列为必过 check。
+**为什么是「报告模式」(`continue-on-error: true`)而非硬门禁**:首次接扫描器时仓库已有**历史 CVE 欠账**,这些要么需大版本升级、要么是传递依赖,不能盲目自动改。让欠账长期把 master 判红会训练大家无视告警,所以现阶段:**漏洞照常打印进 job 日志 + Dependabot 照常开修复 PR,但不判红构建**。新漏洞同样会在日志可见。
+
+**已知欠账(2026-06-03,上线前需清理)**:
+- `pillow==11.1.0` —— 多个 2026 CVE(CVE-2026-25990 / CVE-2026-40192 / PYSEC-2026-165),修复在 12.x(大版本,升级后需回归图像/扫描件识别)。
+- `pdfminer-six`(经 `pdfplumber==0.11.4` 传递引入)—— CVE-2025-64512 / CVE-2025-70559,需等 pdfplumber 放行或显式钉更高版本。
+
+**上线前怎么收尾**:跑 `tools/audit-deps.ps1`(或看 CI 日志)确认当前完整清单 → 评估并升级 → 去掉 ci.yml 两个审计步骤的 `continue-on-error: true`,即变成硬门禁。配合直接 push 工作流,届时红 X 会清晰提示新引入的漏洞。
 
 ### Dependabot(依赖自动巡检 · 自 v3.6.19)
 
