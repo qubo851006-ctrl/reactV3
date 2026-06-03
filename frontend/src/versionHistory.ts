@@ -2,6 +2,14 @@ import type { VersionEntry } from './branding'
 
 export const VERSION_ENTRIES: VersionEntry[] = [
   {
+    version: 'v3.6.17',
+    date: '2026-06-03',
+    changes: [
+      { type: 'fix', text: '前端接入错误边界(ErrorBoundary):此前任一组件渲染期抛异常会卸载整棵 React 树、整个应用白屏。新增可复用 ErrorBoundary 组件,两层防护——顶层(main.tsx 包裹 App)全屏兜底是白屏最后防线;六个业务 Flow(培训/台账/授权/三表合并/审计/合规)各自包内联边界,单个模块崩溃只显示卡片提示并隔离,侧栏/头部/其它会话仍可用。' },
+      { type: 'fix', text: '兜底 UI 含错误信息与"重试/刷新页面"出口:内联兜底点"重试"即重挂该模块(无需刷新整页),Flow 名由技能注册表派生(如"三台账合并出错了")。错误同时记 console.error 便于排查,后续可接前端日志上报。新增 6 个 ErrorBoundary 单测(正常透传/内联兜底/全屏兜底/重试恢复/默认 label/自定义 fallback),前端 vitest 47 全过、eslint 干净、build 通过。' },
+    ],
+  },
+  {
     version: 'v3.6.16',
     date: '2026-06-03',
     changes: [

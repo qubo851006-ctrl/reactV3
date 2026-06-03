@@ -16,6 +16,7 @@ import LedgerMergeFlow from './components/LedgerMergeFlow'
 import AuditFlow from './components/AuditFlow'
 import ComplianceFlow from './components/ComplianceFlow'
 import VersionPanel from './components/VersionPanel'
+import ErrorBoundary from './components/ErrorBoundary'
 import AuthGate from './components/AuthGate'
 import type { AuthUser } from './components/AuthGate'
 import UserMenu from './components/UserMenu'
@@ -48,6 +49,11 @@ const FLOW_COMPONENTS: Partial<Record<Stage, ComponentType<FlowProps>>> = {
   waiting_audit_file: AuditFlow,
   waiting_compliance_file: ComplianceFlow,
 }
+
+// Stage → 业务名（用于 Flow 级 ErrorBoundary 兜底文案），由技能注册表派生
+const STAGE_LABELS: Partial<Record<Stage, string>> = Object.fromEntries(
+  SKILLS.map(skill => [skill.trigger.stage, skill.label]),
+)
 
 const CHAT_MODEL_STORAGE_KEY = 'fadu.chatModel'
 const VISION_MODEL_STORAGE_KEY = 'fadu.visionModel'
@@ -450,24 +456,26 @@ export default function App() {
             if (!FlowComp) return null
             return (
               <div key={sid} className={sid === currentSessionId ? '' : 'hidden'}>
-                <FlowComp
-                  onComplete={reply => {
-                    setMessagesMap(prev => ({
-                      ...prev,
-                      [sid]: [...(prev[sid] ?? []), { role: 'assistant' as const, content: reply }],
-                    }))
-                    setStages(prev => ({ ...prev, [sid]: 'idle' }))
-                  }}
-                  onCancel={() => {
-                    setMessagesMap(prev => ({
-                      ...prev,
-                      [sid]: [...(prev[sid] ?? []), { role: 'assistant' as const, content: '已取消，如需重新操作请告诉我。' }],
-                    }))
-                    setStages(prev => ({ ...prev, [sid]: 'idle' }))
-                  }}
-                  visionModel={visionModel}
-                  canManageResponsiblePersons={user.role === 'admin'}
-                />
+                <ErrorBoundary label={STAGE_LABELS[sStage] ?? '当前操作'}>
+                  <FlowComp
+                    onComplete={reply => {
+                      setMessagesMap(prev => ({
+                        ...prev,
+                        [sid]: [...(prev[sid] ?? []), { role: 'assistant' as const, content: reply }],
+                      }))
+                      setStages(prev => ({ ...prev, [sid]: 'idle' }))
+                    }}
+                    onCancel={() => {
+                      setMessagesMap(prev => ({
+                        ...prev,
+                        [sid]: [...(prev[sid] ?? []), { role: 'assistant' as const, content: '已取消，如需重新操作请告诉我。' }],
+                      }))
+                      setStages(prev => ({ ...prev, [sid]: 'idle' }))
+                    }}
+                    visionModel={visionModel}
+                    canManageResponsiblePersons={user.role === 'admin'}
+                  />
+                </ErrorBoundary>
               </div>
             )
           })}
