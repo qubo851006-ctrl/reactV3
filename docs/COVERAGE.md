@@ -40,7 +40,7 @@ npm run test:coverage
 | `utils/write_excel.py` | 0% | Excel 写入 |
 | `utils/pdf_reader.py` | 0% | PDF 读取 |
 | `utils/classifier.py` | 0% | 旧分类器(skills/classifier 是新版) |
-| `utils/excel_merger.py` | 7% | 三台账合并核心逻辑——值得优先补 |
+| `utils/excel_merger.py` | ✅ 99%（v3.6.18 已补，原 7%） | 三台账合并核心逻辑——已补 30 个单测 |
 | `utils/archiver.py` | 39% | 文件归档 |
 | `utils/auth_request_drafter.py` | 65% | 授权请示起草 |
 | `utils/qcc_mcp_client.py` | 57% | 企查查客户端 |
@@ -52,6 +52,6 @@ npm run test:coverage
 
 ## 说明
 
-- **excel_merger.py 7%** 是最该补的:三台账合并的核心计算逻辑,目前几乎没单测,只有 e2e 导航冒烟覆盖了"能进流程",没覆盖"合并算得对不对"。
+- ~~**excel_merger.py 7%** 是最该补的~~ → **已于 v3.6.18 补到 99%**:新增 `tests/test_excel_merger.py` 30 个单测,覆盖编号归一化/表头探测/合计行跳过/匹配状态 8 分支/模糊匹配/一对多笛卡尔积/去重/优先级排序/统计计数,通过回读输出 xlsx 验证"合并算得对不对"。
 - 覆盖率提升是独立的后续工作,本次只是把"统计能力"建起来 + 记录基线。
 - 不纳入 CI 强制阈值:当前 CI 求快稳;若未来要防倒退,可在 CI 加 `--cov-fail-under=60`(后端)的软门禁。

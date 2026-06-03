@@ -2,6 +2,14 @@ import type { VersionEntry } from './branding'
 
 export const VERSION_ENTRIES: VersionEntry[] = [
   {
+    version: 'v3.6.18',
+    date: '2026-06-03',
+    changes: [
+      { type: 'refactor', text: '三台账合并核心补测试:excel_merger.py(合同/采购/财务三表按合同编号合并的核心计算)此前覆盖率仅 7%,只有 e2e 冒烟覆盖"能进流程",没覆盖"合并算得对不对"。新增 30 个单测,覆盖率提到 99%——编号归一化(大小写/全角括号/末尾"号")、表头行探测、合计行/空行跳过、汇总 Sheet 优先、匹配状态 8 个分支、跨格式模糊匹配、一对多笛卡尔积展开、完全一致行去重、优先级排序、统计计数,均通过回读输出 Excel 验证。' },
+      { type: 'refactor', text: '纯测试新增,未改动生产代码,零回归风险。后端 pytest 425 全过,ruff 全绿。docs/COVERAGE.md 已更新基线。' },
+    ],
+  },
+  {
     version: 'v3.6.17',
     date: '2026-06-03',
     changes: [
