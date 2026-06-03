@@ -32,6 +32,17 @@
 
 ---
 
+## 2026-06-03 更新（v3.6.15 · LLM 韧性层真正接入业务）
+
+- **背景**：v3.6.6 建好的 LLM 韧性层（重试 / 退避 / 断路器 / 模型降级链 qwen→DeepSeek→GLM→本地 Ollama / 钉钉告警）此前**业务零调用**——轮子造好测好却"挂在墙上"，N3 想根治的"单一模型抽风拖垮全业务"风险在生产里原样还开着。
+- **做法（关键设计）**：把韧性**下沉进 `llm_audit.traced_complete`**，而不是把业务迁到 `call_llm_chat`（后者不走审计追踪，迁过去会丢 trace——V3 合规命脉）。新增同步版 `llm_client.complete_with_resilience(client, *, model, messages, scene, ...)`，复用与异步层**同一套**断路器 / 降级链 / 告警去重状态（无第二份策略副本），用调用方传入的 client 在 fallback 链上轮换模型（同一 AIRCHINA 端点，只变模型名）。
+- **覆盖面**：台账抽取（`ledger_helpers`）、审计交叉复核（`routers/audit`）、培训归档（`routers/training`）、合规台账（`utils/compliance_ledger`）、分类（`utils/classifier`）、影像分析（`utils/image_analyzer`）——全部 9 个走 `traced_complete` 的业务点**零改动**即获得韧性，且**完整保留 LLM 调用审计**。降级后 trace 记录的是**实际服务的模型**（而非原本要路由的模型）。
+- **契约保持**：全链路失败仍按原样抛 `RuntimeError`（`traced_complete` 对调用方的错误传播契约不变），中间的重试 / 降级对业务透明。
+- **测试**：新增 9 个同步韧性单测（镜像异步层 8 场景：命中 / 重试 / 模型降级 / Ollama 兜底 / 全失败开断路器 / 断路器拒绝 / 冷却恢复 / 告警去重 + 1 个"降级后 trace 记录实际模型"集成测试）。后端 pytest **380 全过**，ruff 全绿。
+- 对应 2026-06-02 工程性再审计「头号问题」与优化清单 #1。强 schema 接入（防 LLM 吐脏字段污染业务）作为下一步 v3.6.16。
+
+---
+
 ## 2026-06-02 更新（v3.6.14 · 后端 ruff 静态检查接入）
 
 - **接入 ruff**：保守规则集（pyflakes `F` + pycodestyle `E4/E7/E9`），配置见 `backend/ruff.toml`。默认 100 个历史问题，治理后 `ruff check` 全绿。

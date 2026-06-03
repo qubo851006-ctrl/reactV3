@@ -367,6 +367,160 @@ async def call_llm_chat(
     )
 
 
+# ── Synchronous resilient call (sunk into llm_audit.traced_complete) ─────────
+
+# Sync OpenAI factory for the Ollama fallback leg — overridable in tests so the
+# sync resilience path can be exercised without real network / Ollama traffic.
+def _default_sync_ollama_factory() -> OpenAI:
+    return OpenAI(
+        api_key=OLLAMA_API_KEY,
+        base_url=OLLAMA_BASE_URL,
+        http_client=httpx.Client(verify=False, headers={}, timeout=60.0),
+    )
+
+
+_sync_ollama_factory: Callable[[], OpenAI] = _default_sync_ollama_factory
+
+
+def set_sync_ollama_factory(factory: Callable[[], OpenAI]) -> None:
+    """Override for tests."""
+    global _sync_ollama_factory
+    _sync_ollama_factory = factory
+
+
+def reset_sync_ollama_factory() -> None:
+    global _sync_ollama_factory
+    _sync_ollama_factory = _default_sync_ollama_factory
+
+
+def complete_with_resilience(
+    client: Any,
+    *,
+    model: str,
+    messages: list[dict[str, Any]],
+    scene: str = "chat",
+    max_retries: int = 3,
+    **kwargs: Any,
+) -> Any:
+    """Synchronous resilient chat-completion using a caller-supplied client.
+
+    Mirrors :func:`call_llm_chat`'s retry / backoff / circuit-breaker /
+    model-fallback-chain / DingTalk-alert behaviour, with two differences that
+    let it slot underneath ``llm_audit.traced_complete`` transparently:
+
+      * it is **synchronous** (traced_complete runs inside a sync span), and
+      * it reuses the **caller-supplied ``client``** for every cloud model in
+        the chain (only the ``model`` name varies) — all AI_CHAT_MODELS are
+        served by the same AIRCHINA endpoint, so one client is correct.
+
+    All decision logic (breaker / chain / retryability / alert dedupe) is the
+    same process-local state shared with :func:`call_llm_chat` — there is no
+    second copy of the policy.
+
+    Order of attempts:
+      1. ``model`` (per-scene-resolved by the caller) retried ``max_retries`` times
+      2. each remaining model in ``AI_CHAT_MODELS`` with retry
+      3. local Ollama if ``OLLAMA_BASE_URL`` is configured
+
+    Raises ``RuntimeError`` if the breaker is open or every path fails — same
+    contract as the legacy raw call, so traced_complete keeps propagating LLM
+    failures to its caller. Intermediate retries / fallbacks are transparent.
+
+    ``scene`` is used purely for telemetry / alert messages.
+    """
+    if _breaker_is_open():
+        raise RuntimeError(
+            f"AI 服务暂时不可用(circuit breaker open for {scene}),"
+            f"请约 {int(_breaker.open_until - time.time())} 秒后重试。"
+        )
+
+    chain = _build_fallback_chain(model)
+    last_error: Exception | None = None
+    degraded = False  # flipped True once the first model fails
+
+    for model_name in chain:
+        for attempt in range(max_retries):
+            try:
+                resp = client.chat.completions.create(
+                    model=model_name, messages=messages, **kwargs
+                )
+                _breaker_record_success()
+                if degraded:
+                    logger.warning(
+                        "[LLM] degraded success (sync): scene=%s served by fallback model=%s",
+                        scene, model_name,
+                    )
+                    if _should_fire_alert(f"degraded:{scene}"):
+                        _alert_sink(
+                            "AI 服务降级",
+                            f"场景 {scene} 的主模型不可用,已自动降级到 {model_name} 完成本次请求。",
+                            "warning",
+                        )
+                return resp
+
+            except Exception as exc:
+                last_error = exc
+                if _is_retryable_error(exc) and attempt < max_retries - 1:
+                    wait = min(2 ** attempt, 8)
+                    logger.warning(
+                        "[LLM] retryable error (sync) on model=%s attempt=%d/%d: %s — sleeping %ds",
+                        model_name, attempt + 1, max_retries, type(exc).__name__, wait,
+                    )
+                    time.sleep(wait)
+                    continue
+                degraded = True
+                logger.warning(
+                    "[LLM] model %s exhausted (sync, %s), falling back to next",
+                    model_name, type(exc).__name__,
+                )
+                break
+
+    # All cloud models exhausted -> try local Ollama if configured
+    if OLLAMA_BASE_URL:
+        try:
+            logger.warning("[LLM] all cloud models down (sync); trying local Ollama fallback")
+            ollama_client = _sync_ollama_factory()
+            resp = ollama_client.chat.completions.create(
+                model=chain[0], messages=messages, **kwargs
+            )
+            _breaker_record_success()
+            if _should_fire_alert(f"ollama:{scene}"):
+                _alert_sink(
+                    "AI 服务降级至本地 Ollama",
+                    f"场景 {scene} 的全部云端模型均不可用,已自动降级到本地 Ollama 完成本次请求,请关注网络与配额。",
+                    "warning",
+                )
+            return resp
+        except Exception as exc:
+            last_error = exc
+            logger.error("[LLM] Ollama fallback (sync) also failed: %s", exc)
+
+    # Total failure
+    breaker_just_opened = _breaker_record_failure()
+    err_type = type(last_error).__name__ if last_error else "Unknown"
+    err_text = str(last_error) if last_error else "(no error captured)"
+
+    if breaker_just_opened:
+        if _should_fire_alert("breaker_open"):
+            _alert_sink(
+                "AI 服务断路器打开",
+                f"已连续 {_BREAKER_THRESHOLD} 次调用失败,断路器已打开 {int(_BREAKER_COOLDOWN)} 秒。最后错误:{err_type}: {err_text[:200]}",
+                "error",
+            )
+    else:
+        if _should_fire_alert(f"total_failure:{scene}"):
+            _alert_sink(
+                "AI 服务全链路失败",
+                f"场景 {scene} 在主模型 + 备选模型 + 本地 Ollama 全部失败。错误:{err_type}: {err_text[:200]}",
+                "error",
+            )
+
+    raise RuntimeError(
+        f"AI 服务暂时全部不可用(已尝试 {len(chain)} 个云端模型 + Ollama 兜底)。"
+        f"最后错误:{err_type}: {err_text[:200]}"
+    )
+
+
 # ── Structured output helper (since N2) ─────────────────────────────────────
 
 T_Model = TypeVar("T_Model", bound=BaseModel)

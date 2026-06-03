@@ -113,14 +113,26 @@ def traced_complete(
     Persistence errors are swallowed by the tracer — this call never raises
     because of tracing. LLM errors propagate normally (and are also captured
     in the trace row's `error` field).
+
+    Resilience (since v3.6.15): the raw completion is routed through
+    ``llm_client.complete_with_resilience`` so retry / backoff / circuit-breaker
+    / model-fallback-chain / DingTalk-alert apply to every traced business call
+    automatically — the span still records the model that actually served the
+    response (which may be a fallback model after degradation).
     """
+    from llm_client import complete_with_resilience
+
     final_messages = _resolve_messages_with_few_shot(messages, scene, inject_few_shot)
     effective_model = _resolve_model_for_scene(scene, model)
     with get_tracer().sync_span(
         scene=scene, user_id=user_id, session_id=session_id,
     ) as span:
-        resp = client.chat.completions.create(
-            model=effective_model, messages=final_messages, **completion_kwargs,
+        resp = complete_with_resilience(
+            client,
+            model=effective_model,
+            messages=final_messages,
+            scene=scene,
+            **completion_kwargs,
         )
         output_text = None
         if getattr(resp, "choices", None):
@@ -128,8 +140,15 @@ def traced_complete(
                 output_text = resp.choices[0].message.content
             except (AttributeError, IndexError):
                 output_text = None
+        # Record the model the server actually served (may differ from
+        # effective_model after a resilience fallback). Only trust a real
+        # string from the response; otherwise keep the resolved model.
+        served_model = effective_model
+        resp_model = getattr(resp, "model", None)
+        if isinstance(resp_model, str) and resp_model:
+            served_model = resp_model
         span.record(
-            model=effective_model,
+            model=served_model,
             input_messages=final_messages,
             output_text=output_text,
             usage=getattr(resp, "usage", None),

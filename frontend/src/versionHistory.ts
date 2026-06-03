@@ -2,6 +2,14 @@ import type { VersionEntry } from './branding'
 
 export const VERSION_ENTRIES: VersionEntry[] = [
   {
+    version: 'v3.6.15',
+    date: '2026-06-03',
+    changes: [
+      { type: 'fix', text: 'LLM 韧性层真正接入业务:此前 v3.6.6 建好的重试/退避/断路器/模型降级链/钉钉告警一直"挂在墙上"业务零调用。本次把韧性下沉进 llm_audit.traced_complete——新增同步版 llm_client.complete_with_resilience,复用同一套断路器/降级链/告警状态,用调用方传入的 client 在 qwen→DeepSeek→GLM→本地 Ollama 链上自动轮换。台账抽取、审计、培训、合规、影像分析等全部 9 个走 traced_complete 的业务点零改动即获得韧性,且完整保留 LLM 调用审计追踪(降级后 trace 记录的是实际服务的模型)。单一模型抽风不再拖垮业务。' },
+      { type: 'fix', text: '契约保持:全链路失败仍按原样抛出 RuntimeError(traced_complete 对调用方的错误传播契约不变),中间的重试/降级对业务透明。新增 9 个同步韧性单测(镜像异步层 8 场景 + 1 个降级后记录实际模型的集成测试);后端 pytest 380 全过,ruff 全绿。' },
+    ],
+  },
+  {
     version: 'v3.6.14',
     date: '2026-06-02',
     changes: [
