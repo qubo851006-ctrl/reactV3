@@ -452,12 +452,6 @@ PROMPT_MERGE_SITUATION = """你是法务专家助手，请将以下"业务情况
 {litigation_claims}"""
 
 
-def _parse_json(raw: str) -> dict:
-    raw = re.sub(r"^```(?:json)?\s*", "", raw.strip(), flags=re.IGNORECASE)
-    raw = re.sub(r"\s*```$", "", raw)
-    return json.loads(raw)
-
-
 _CASE_NO_RE = re.compile(r"[（(]\s*\d{4}\s*[）)]\s*[\u4e00-\u9fffA-Za-z0-9\s]{2,80}?号")
 
 
@@ -613,6 +607,13 @@ def _ledger_result_from_judgment_fields(fields: dict, stage: str) -> str:
 
 def _extract_doc_fields(client, doc: dict) -> dict:
     from llm_audit import traced_complete
+    from ledger_schemas import (
+        BusinessFields,
+        ExecutionFields,
+        JudgmentFields,
+        LitigationFields,
+        parse_ledger_fields,
+    )
 
     dtype = doc["doc_type"]
     text = doc.get("text") or ""
@@ -626,7 +627,8 @@ def _extract_doc_fields(client, doc: dict) -> dict:
             messages=[{"role": "user", "content": prompt}],
             max_tokens=2000, temperature=0.1,
         )
-        return {"kind": "litigation", "dtype": dtype, "fields": _parse_json(resp.choices[0].message.content)}
+        return {"kind": "litigation", "dtype": dtype, "fields": parse_ledger_fields(
+            resp.choices[0].message.content, LitigationFields, "extract_litigation_fields")}
 
     if dtype == "业务情况说明":
         prompt = PROMPT_BUSINESS_DESC.replace("{text}", text[:8000])
@@ -638,7 +640,8 @@ def _extract_doc_fields(client, doc: dict) -> dict:
             messages=[{"role": "user", "content": prompt}],
             max_tokens=800, temperature=0.1,
         )
-        return {"kind": "business", "dtype": dtype, "fields": _parse_json(resp.choices[0].message.content)}
+        return {"kind": "business", "dtype": dtype, "fields": parse_ledger_fields(
+            resp.choices[0].message.content, BusinessFields, "extract_business_fields")}
 
     if dtype in ("一审判决书", "二审判决书", "判决书", "裁定书", "再审申请书"):
         text_for_prompt = (text[:5000] + "\n……（中间省略）……\n" + text[-3000:]) if len(text) > 8000 else text
@@ -651,7 +654,8 @@ def _extract_doc_fields(client, doc: dict) -> dict:
             messages=[{"role": "user", "content": prompt}],
             max_tokens=2000, temperature=0.1,
         )
-        return {"kind": "judgment", "dtype": dtype, "fields": _parse_json(resp.choices[0].message.content)}
+        return {"kind": "judgment", "dtype": dtype, "fields": parse_ledger_fields(
+            resp.choices[0].message.content, JudgmentFields, "extract_judgment_fields")}
 
     if dtype == "强制执行申请书":
         prompt = PROMPT_EXECUTION.replace("{text}", text[:4000])
@@ -663,7 +667,8 @@ def _extract_doc_fields(client, doc: dict) -> dict:
             messages=[{"role": "user", "content": prompt}],
             max_tokens=200, temperature=0.1,
         )
-        return {"kind": "execution", "dtype": dtype, "fields": _parse_json(resp.choices[0].message.content)}
+        return {"kind": "execution", "dtype": dtype, "fields": parse_ledger_fields(
+            resp.choices[0].message.content, ExecutionFields, "extract_execution_fields")}
 
     return {"kind": "ignored", "dtype": dtype, "fields": {}}
 

@@ -2,6 +2,15 @@ import type { VersionEntry } from './branding'
 
 export const VERSION_ENTRIES: VersionEntry[] = [
   {
+    version: 'v3.6.16',
+    date: '2026-06-03',
+    changes: [
+      { type: 'fix', text: '强 schema 接入台账抽取:此前 v3.6.7 建好的 extract_structured(防 LLM 吐脏 JSON 污染业务字段)业务零调用。本次给案件台账的四类文书抽取(起诉状/上诉状、判决/裁定、强制执行申请书、业务情况说明)接上 Pydantic 严格校验,新增 ledger_schemas.py 定义四套 schema。LLM 抽取结果写入台账前先过校验:多吐的污染字段直接丢弃、漏字段不致整条作废、标的金额(数字字符串→float、纯叙述文本→null)按财务规范类型规整。' },
+      { type: 'fix', text: '行为保持:替换原裸 json.loads(_parse_json),校验彻底失败(非 JSON/非对象/空)时抛 ValueError,沿用原"该文书字段提取失败"的用户可见提示与线程池兜底,不静默吞错、不把脏数据写进台账。字符串字段收到数字时强转(coerce_numbers_to_str)而非作废,降低回归风险。单标签场景(培训类别等)此前已用 extract_short_text 护住;compliance 多步嵌套流水线容错性强,暂不接入。' },
+      { type: 'fix', text: '新增 15 个 schema 单测(合法解析/标的金额三态/污染字段丢弃/markdown 包裹/解释性前缀/漏字段/非 JSON 抛错/数组非对象抛错等)。后端 pytest 395 全过,ruff 全绿。' },
+    ],
+  },
+  {
     version: 'v3.6.15',
     date: '2026-06-03',
     changes: [

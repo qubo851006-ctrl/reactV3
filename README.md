@@ -32,6 +32,22 @@
 
 ---
 
+## 2026-06-03 更新（v3.6.16 · 强 schema 接入台账抽取）
+
+- **背景**：v3.6.7 建好的 `extract_structured`（防 LLM 吐脏 JSON 污染业务字段，N2 真实出过的 bug）此前**业务零调用**，案件台账抽取仍走裸 `json.loads`，复发路径没真正堵死。
+- **做法**：新增 `backend/ledger_schemas.py`，为四类文书抽取（起诉状/上诉状、判决/裁定、强制执行申请书、业务情况说明）定义 Pydantic 严格 schema，字段与各 PROMPT 要求的 JSON 形状一一对应（中文字段名）。`ledger_helpers._extract_doc_fields` 的四处 `_parse_json` 换成 `parse_ledger_fields(raw, Schema, scene)`。
+- **校验语义**：
+  - **多吐污染字段** → `extra="ignore"` 直接丢弃，不写进台账；
+  - **漏字段** → 默认 None，整条不作废（LLM 漏填不算污染）；
+  - **标的金额** → 宽松前置校验：数字 / 数字字符串（"约100.50万元"→100.5）→ float，纯叙述（"一百万左右"）→ null。财务字段规范类型是 float（见 `write_excel` 与台账下游），叙述污染被挡下；
+  - **字符串字段收到数字** → `coerce_numbers_to_str` 强转而非作废，降回归风险。
+- **行为保持**：校验彻底失败（非 JSON / 非对象 / 空）抛 `ValueError`，沿用原 `_parse_json` 抛错被线程池捕获、向用户提示"该文书字段提取失败"的可见行为——不静默吞错、不把脏数据写进台账。
+- **范围说明**：单标签分类场景（培训类别、文书类型等）此前已用 `extract_short_text` 护住；`compliance_extract` 是多步嵌套流水线、下游 `normalize_extracted_item` 容错性强，强 schema 高风险低 ROI，本次不接入。
+- **测试**：新增 `tests/test_ledger_schemas.py` 15 个用例（合法解析 / 标的金额三态 / 污染字段丢弃 / markdown 包裹 / 解释性前缀 / 漏字段 / 非 JSON 抛错 / 数组非对象抛错 / 数字字段强转等）；既有台账抽取追踪测试已自动走强 schema 仍绿。后端 pytest **395 全过**，ruff 全绿。
+- 对应 2026-06-02 工程性再审计「头号问题」与优化清单 #1（韧性 v3.6.15 + 强 schema v3.6.16，#1 两半至此全部兑现）。
+
+---
+
 ## 2026-06-03 更新（v3.6.15 · LLM 韧性层真正接入业务）
 
 - **背景**：v3.6.6 建好的 LLM 韧性层（重试 / 退避 / 断路器 / 模型降级链 qwen→DeepSeek→GLM→本地 Ollama / 钉钉告警）此前**业务零调用**——轮子造好测好却"挂在墙上"，N3 想根治的"单一模型抽风拖垮全业务"风险在生产里原样还开着。
