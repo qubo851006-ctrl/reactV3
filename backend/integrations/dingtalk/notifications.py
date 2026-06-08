@@ -224,7 +224,9 @@ def send_dingtalk_notification(
         return False
 
     sent_any = False
-    enterprise_userid = at_user_id.strip()
+    # at_user_id can be None when the user has no dingtalk_user_id bound — guard
+    # here so a missing binding never breaks the (best-effort) notification path.
+    enterprise_userid = (at_user_id or "").strip()
     if enterprise_userid and work_notice_enabled():
         try:
             task_url = _build_task_url(os.getenv("DINGTALK_NOTIFY_BASE_URL", ""), session_id)
@@ -407,7 +409,7 @@ def notify_task_success(
         stage=stage,
         user_id=_user_id(user),
         user_name=getattr(user, "name", "") if user is not None else "",
-        at_user_id=getattr(user, "dingtalk_user_id", "") if user is not None else "",
+        at_user_id=(getattr(user, "dingtalk_user_id", "") or "") if user is not None else "",
         session_id=session_id,
     )
 
@@ -428,7 +430,7 @@ def notify_task_failure(
         stage=stage,
         user_id=_user_id(user),
         user_name=getattr(user, "name", "") if user is not None else "",
-        at_user_id=getattr(user, "dingtalk_user_id", "") if user is not None else "",
+        at_user_id=(getattr(user, "dingtalk_user_id", "") or "") if user is not None else "",
         session_id=session_id,
     )
 
@@ -449,6 +451,6 @@ def notify_task_warning(
         stage=stage,
         user_id=_user_id(user),
         user_name=getattr(user, "name", "") if user is not None else "",
-        at_user_id=getattr(user, "dingtalk_user_id", "") if user is not None else "",
+        at_user_id=(getattr(user, "dingtalk_user_id", "") or "") if user is not None else "",
         session_id=session_id,
     )

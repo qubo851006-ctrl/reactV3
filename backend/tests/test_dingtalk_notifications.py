@@ -130,6 +130,33 @@ class DingtalkNotificationTests(unittest.TestCase):
         self.assertIn("@ding-user-1", payload["markdown"]["text"])
         self.assertEqual(post.call_args.kwargs["headers"]["Content-Type"], "application/json; charset=utf-8")
 
+    def test_notify_handles_user_without_dingtalk_binding(self):
+        """Regression: a user whose dingtalk_user_id is NULL must not crash the
+        best-effort notification path. Previously `at_user_id.strip()` raised
+        AttributeError on None and bubbled up, failing the whole business task
+        (training/compliance extract etc.) for every user not bound to DingTalk."""
+        from integrations.dingtalk.notifications import notify_task_failure, notify_task_success
+
+        class _UserNoBinding:
+            id = 3
+            name = "李四"
+            dingtalk_user_id = None  # not bound to DingTalk
+
+        env = {
+            "DINGTALK_NOTIFY_ENABLED": "true",
+            "DINGTALK_WEBHOOK_URL": "https://oapi.dingtalk.com/robot/send?access_token=abc",
+        }
+        with patch.dict("os.environ", env, clear=True), \
+             patch("integrations.dingtalk.notifications._record_notification_log"), \
+             patch("httpx.post") as post:
+            post.return_value = httpx.Response(200, json={"errcode": 0})
+            # Must not raise despite dingtalk_user_id being None.
+            ok_success = notify_task_success(task="培训信息识别", summary="主题", user=_UserNoBinding())
+            ok_failure = notify_task_failure(task="培训信息识别", summary="出错", user=_UserNoBinding())
+
+        self.assertTrue(ok_success)
+        self.assertTrue(ok_failure)
+
 
 class DingtalkNotificationLogTests(unittest.TestCase):
     def setUp(self):
