@@ -2,6 +2,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -76,6 +77,34 @@ class AuthRequestDrafterTests(unittest.TestCase):
         self.assertEqual(info["authorization_no"], "建开转托字（2026）007号")
         self.assertEqual(info["trustee_name"], "白利业")
         self.assertEqual(info["authorization_term"], "自2026年2月2日起至国航T3北区机务设施建设项目结束止。")
+
+    def test_doc_fallback_uses_libreoffice_after_binary_extraction_fails(self):
+        from utils import auth_request_drafter as drafter
+
+        with patch.object(drafter, "_extract_doc_text_from_binary", side_effect=RuntimeError("binary failed")) as binary_mock, \
+             patch.object(drafter, "_extract_doc_text_with_soffice", return_value="converted text") as soffice_mock:
+            text = drafter.extract_attachment_text(b"legacy-doc", "legacy.doc")
+
+        self.assertEqual(text, "converted text")
+        binary_mock.assert_called_once_with(b"legacy-doc")
+        soffice_mock.assert_called_once_with(b"legacy-doc")
+        self.assertFalse(hasattr(drafter, "_extract_doc_text_with_word"))
+        self.assertFalse(hasattr(drafter, "_extract_doc_text_with_powershell_word"))
+
+    def test_libreoffice_bin_env_is_preferred_for_doc_conversion(self):
+        from utils import auth_request_drafter as drafter
+
+        with patch.dict("os.environ", {"LIBREOFFICE_BIN": r"C:\LibreOffice\program\soffice.exe"}), \
+             patch.object(drafter.shutil, "which", return_value=None):
+            self.assertEqual(drafter._resolve_soffice_binary(), r"C:\LibreOffice\program\soffice.exe")
+
+    def test_doc_conversion_error_names_libreoffice_requirement(self):
+        from utils import auth_request_drafter as drafter
+
+        with patch.dict("os.environ", {"LIBREOFFICE_BIN": ""}), \
+             patch.object(drafter.shutil, "which", return_value=None):
+            with self.assertRaisesRegex(RuntimeError, "LibreOffice"):
+                drafter._extract_doc_text_with_soffice(b"legacy-doc")
 
     def test_docx_uses_fang_song_for_latin_and_digits(self):
         from docx import Document

@@ -26,6 +26,7 @@ from upload_validation import (
     UploadValidationError,
     validate_excel_upload,
     validate_image_upload,
+    validate_legal_upload,
     validate_pdf_upload,
 )
 
@@ -50,6 +51,17 @@ class UploadValidationTests(unittest.TestCase):
                 "text/plain",
                 b"PK\x03\x04fake workbook",
             )
+
+    def test_legal_upload_accepts_real_doc_magic_and_rejects_fake_doc(self):
+        doc_bytes = bytes.fromhex("D0CF11E0A1B11AE1") + b"fake legacy word body"
+
+        self.assertEqual(
+            validate_legal_upload(r"..\authorization.doc", "application/msword", doc_bytes),
+            "authorization.doc",
+        )
+
+        with self.assertRaises(UploadValidationError):
+            validate_legal_upload("authorization.doc", "application/msword", b"not a legacy word doc")
 
 
 class FileStoreTests(unittest.TestCase):

@@ -189,64 +189,6 @@ def _extract_docx_text(docx_bytes: bytes) -> str:
     return _clean_text("\n".join(parts))
 
 
-def _extract_doc_text_with_word(doc_bytes: bytes) -> str:
-    try:
-        import win32com.client  # type: ignore
-    except Exception as exc:  # pragma: no cover - depends on Windows desktop env
-        raise RuntimeError("pywin32 不可用") from exc
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        doc_path = os.path.join(tmpdir, "attachment2.doc")
-        with open(doc_path, "wb") as f:
-            f.write(doc_bytes)
-        word = win32com.client.DispatchEx("Word.Application")
-        word.Visible = False
-        try:
-            doc = word.Documents.Open(doc_path, False, True)
-            text = doc.Content.Text
-            doc.Close(False)
-        finally:
-            word.Quit()
-    return _clean_text(text)
-
-
-def _extract_doc_text_with_powershell_word(doc_bytes: bytes) -> str:
-    powershell = shutil.which("powershell") or shutil.which("pwsh")
-    if not powershell:
-        raise RuntimeError("PowerShell 不可用")
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        doc_path = os.path.join(tmpdir, "attachment2.doc")
-        txt_path = os.path.join(tmpdir, "attachment2.txt")
-        script_path = os.path.join(tmpdir, "extract-doc.ps1")
-        with open(doc_path, "wb") as f:
-            f.write(doc_bytes)
-        script = """
-$ErrorActionPreference = 'Stop'
-$word = New-Object -ComObject Word.Application
-$word.Visible = $false
-try {
-  $doc = $word.Documents.Open($args[0], $false, $true)
-  $text = $doc.Content.Text
-  [System.IO.File]::WriteAllText($args[1], $text, [System.Text.Encoding]::UTF8)
-  $doc.Close([ref]$false)
-} finally {
-  $word.Quit()
-}
-"""
-        with open(script_path, "w", encoding="utf-8") as f:
-            f.write(script)
-        subprocess.run(
-            [powershell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script_path, doc_path, txt_path],
-            check=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=60,
-        )
-        with open(txt_path, "r", encoding="utf-8") as f:
-            return _clean_text(f.read())
-
-
 def _extract_doc_text_from_binary(doc_bytes: bytes) -> str:
     text = _strip_word_field_codes(doc_bytes.decode("utf-16le", errors="ignore"))
     markers = ["授权 委 托 书", "授权委托书", "企业名称", "委托单位"]
@@ -261,10 +203,20 @@ def _extract_doc_text_from_binary(doc_bytes: bytes) -> str:
     return text
 
 
+def _resolve_soffice_binary() -> str | None:
+    configured = os.getenv("LIBREOFFICE_BIN", "").strip()
+    if configured:
+        return configured
+    return shutil.which("soffice") or shutil.which("libreoffice")
+
+
 def _extract_doc_text_with_soffice(doc_bytes: bytes) -> str:
-    soffice = shutil.which("soffice") or shutil.which("libreoffice")
+    soffice = _resolve_soffice_binary()
     if not soffice:
-        raise RuntimeError("当前环境无法解析 .doc 文件，请上传 PDF/DOCX 格式附件2")
+        raise RuntimeError(
+            "服务器未配置 LibreOffice，无法解析 .doc 文件；"
+            "请联系管理员配置 LIBREOFFICE_BIN，或上传 PDF/DOCX 格式附件2。"
+        )
     with tempfile.TemporaryDirectory() as tmpdir:
         doc_path = os.path.join(tmpdir, "attachment2.doc")
         with open(doc_path, "wb") as f:
@@ -291,14 +243,8 @@ def extract_attachment_text(file_bytes: bytes, filename: str) -> str:
         try:
             return _extract_doc_text_from_binary(file_bytes)
         except Exception:
-            logger.debug(".doc 二进制文本提取失败,回退到 Word COM 提取", exc_info=True)
-        try:
-            return _extract_doc_text_with_word(file_bytes)
-        except Exception:
-            try:
-                return _extract_doc_text_with_powershell_word(file_bytes)
-            except Exception:
-                return _extract_doc_text_with_soffice(file_bytes)
+            logger.debug(".doc 二进制文本提取失败,回退到 LibreOffice 转换", exc_info=True)
+        return _extract_doc_text_with_soffice(file_bytes)
     raise ValueError("不支持的附件格式")
 
 
