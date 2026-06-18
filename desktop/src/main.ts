@@ -170,10 +170,13 @@ function installMenu(): void {
 function installDownloads(): void {
   session.defaultSession.on('will-download', (event, item) => {
     const suggestedName = item.getFilename()
-    const targetPath = dialog.showSaveDialogSync(mainWindow ?? undefined, {
+    const saveOptions = {
       title: '保存 V3 文件',
       defaultPath: path.join(app.getPath('downloads'), suggestedName),
-    })
+    }
+    const targetPath = mainWindow
+      ? dialog.showSaveDialogSync(mainWindow, saveOptions)
+      : dialog.showSaveDialogSync(saveOptions)
 
     if (!targetPath) {
       event.preventDefault()
