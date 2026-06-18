@@ -16,6 +16,13 @@ npm install
 npm start
 ```
 
+如果服务器/办公网络有 HTTPS 证书拦截，先让 Node 使用系统证书库:
+
+```powershell
+$env:NODE_OPTIONS = "--use-system-ca"
+npm ci
+```
+
 临时指定服务地址:
 
 ```powershell
