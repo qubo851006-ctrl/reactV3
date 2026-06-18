@@ -27,6 +27,9 @@ env/
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/
+desktop/node_modules/
+desktop/dist/
+desktop/release/
 
 # ── Test artifacts ───────────────────────────────────────────────
 backend/tests/tmp/

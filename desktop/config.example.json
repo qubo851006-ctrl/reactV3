@@ -1,0 +1,6 @@
+{
+  "serverUrl": "https://192.168.9.226:8443",
+  "allowInvalidCertificateForHost": "",
+  "minimizeToTray": true,
+  "openExternalLinksInBrowser": true
+}

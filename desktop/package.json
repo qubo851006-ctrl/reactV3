@@ -1,0 +1,42 @@
+{
+  "name": "v3-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "V3 desktop shell for the existing web deployment.",
+  "main": "dist/main.js",
+  "type": "commonjs",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "npm run build && electron .",
+    "start:dev": "set V3_DESKTOP_URL=http://localhost:8001&& npm run start",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder --win nsis"
+  },
+  "author": "",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "@types/node": "^24.12.2",
+    "electron": "^39.2.7",
+    "electron-builder": "^26.0.12",
+    "typescript": "~6.0.2"
+  },
+  "build": {
+    "appId": "cn.faduyuntu.v3.desktop",
+    "productName": "法度云图 V3",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}
