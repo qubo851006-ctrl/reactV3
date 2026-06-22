@@ -19,7 +19,7 @@ from integrations.dingtalk import notify_task_failure, notify_task_success
 from models import User
 from routers.chat import load_history, save_history
 from task_runner import create_background_task, submit_background_task
-from upload_validation import UploadValidationError, validate_pdf_upload
+from upload_validation import UploadValidationError, validate_excel_upload, validate_pdf_upload
 from perf_trace import PerfTrace
 from utils.compliance_ledger import (
     create_compliance_workbook,
@@ -30,6 +30,13 @@ from utils.compliance_ledger import (
     normalize_extracted_item,
     save_responsible_persons,
     upsert_record,
+)
+from utils.ledger_importer import (
+    create_pending_import,
+    load_pending_import,
+    make_preview,
+    normalize_key,
+    parse_compliance_rows,
 )
 
 router = APIRouter(prefix="/api/compliance", tags=["compliance"])
@@ -47,6 +54,15 @@ class ComplianceWriteRequest(BaseModel):
     review_rows: list[dict[str, Any]] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     session_id: str = ""
+
+
+class ComplianceImportConfirmRequest(BaseModel):
+    import_token: str
+    session_id: str = ""
+
+
+def _compliance_existing_keys() -> set[str]:
+    return {normalize_key(record.get("title")) for record in load_records(COMPLIANCE_LEDGER_JSON_PATH) if normalize_key(record.get("title"))}
 
 
 def _run_compliance_extraction(
@@ -253,6 +269,91 @@ def write_compliance(
         save_history(history, user.id, body.session_id)
     write_log(db, user, "compliance_write", f"写入合规审查台账：{record.get('title', '')}", request)
     return {"ok": True, "count": len(records), "sequence": sequence, "reply": reply}
+
+
+@router.post("/import-preview")
+async def preview_compliance_import(
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+):
+    file_bytes = await file.read()
+    try:
+        validate_excel_upload(file.filename or "", file.content_type, file_bytes)
+        records, invalid_rows = parse_compliance_rows(file_bytes)
+        records = [normalize_extracted_item(record) for record in records]
+    except (UploadValidationError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    token = create_pending_import(user.id, "compliance", {"records": records, "invalid_rows": invalid_rows})
+    return make_preview(
+        records=records,
+        invalid_rows=invalid_rows,
+        existing_keys=_compliance_existing_keys(),
+        key_fn=lambda r: normalize_key(r.get("title")),
+        import_token=token,
+    )
+
+
+@router.post("/import-confirm")
+def confirm_compliance_import(
+    body: ComplianceImportConfirmRequest,
+    request: Request,
+    db: DBSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    try:
+        pending = load_pending_import(user.id, "compliance", body.import_token)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    txn_lock = Path(COMPLIANCE_LEDGER_JSON_PATH).with_suffix(".txn")
+    with file_lock(txn_lock):
+        json_path = Path(COMPLIANCE_LEDGER_JSON_PATH)
+        excel_path = Path(COMPLIANCE_LEDGER_EXCEL_PATH)
+        old_json = json_path.read_bytes() if json_path.exists() else None
+        old_excel = excel_path.read_bytes() if excel_path.exists() else None
+        tmp_excel = None
+        inserts = 0
+        updates = 0
+        try:
+            records = load_records(json_path)
+            for raw_record in pending.get("records") or []:
+                before_count = len(records)
+                records, _, updated_existing = upsert_record(records, normalize_extracted_item(raw_record))
+                if updated_existing:
+                    updates += 1
+                elif len(records) > before_count:
+                    inserts += 1
+            excel_path.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(suffix=".xlsx", dir=str(excel_path.parent), delete=False) as tmp:
+                tmp_excel = tmp.name
+            create_compliance_workbook(records, tmp_excel)
+            atomic_write_text(json_path, json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8")
+            Path(tmp_excel).replace(excel_path)
+        except Exception as e:
+            if tmp_excel and os.path.exists(tmp_excel):
+                try:
+                    os.unlink(tmp_excel)
+                except OSError:
+                    pass
+            if old_json is not None:
+                atomic_write_bytes(json_path, old_json)
+            elif json_path.exists():
+                json_path.unlink()
+            if old_excel is not None:
+                atomic_write_bytes(excel_path, old_excel)
+            elif excel_path.exists():
+                excel_path.unlink()
+            write_log(db, user, "compliance_import_failed", f"合规审查台账导入失败：{e}", request)
+            raise HTTPException(status_code=500, detail=f"合规审查台账导入失败：{e}")
+
+    reply = f"✅ 历史合规审查台账导入完成：新增 {inserts} 项，更新 {updates} 项。"
+    if body.session_id:
+        history = load_history(user.id, body.session_id)
+        history.append({"role": "assistant", "content": reply})
+        save_history(history, user.id, body.session_id)
+    write_log(db, user, "compliance_import", f"导入历史合规审查台账：新增 {inserts}，更新 {updates}", request)
+    return {"ok": True, "count": len(records), "inserts": inserts, "updates": updates, "reply": reply}
 
 
 @router.get("/download")

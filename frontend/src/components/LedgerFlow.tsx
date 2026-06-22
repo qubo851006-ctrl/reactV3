@@ -1,6 +1,16 @@
 import { useEffect, useState, useRef } from 'react'
-import { getBackgroundTask, startLedgerExtractTask, writeLedger, downloadLedgerExcel, getErrorMessage, submitLlmFeedback } from '../api'
+import {
+  confirmCaseLedgerImport,
+  downloadLedgerExcel,
+  getBackgroundTask,
+  getErrorMessage,
+  previewCaseLedgerImport,
+  startLedgerExtractTask,
+  submitLlmFeedback,
+  writeLedger,
+} from '../api'
 import type { LedgerPreview, LedgerCaseData, LedgerStage } from '../types'
+import LedgerImportPanel from './LedgerImportPanel'
 import { useNotifier } from './NotificationContext'
 
 interface Props {
@@ -327,6 +337,14 @@ export default function LedgerFlow({ onComplete, onCancel, visionModel = '' }: P
         <button onClick={downloadLedgerExcel} className="text-xs text-emerald-300 hover:text-emerald-200 whitespace-nowrap">
           下载已有台账
         </button>
+      </div>
+      <div className="mb-4">
+        <LedgerImportPanel
+          title="案件台账"
+          previewImport={previewCaseLedgerImport}
+          confirmImport={confirmCaseLedgerImport}
+          onImported={onComplete}
+        />
       </div>
       {error && <div className="text-red-400 text-sm mb-3">❌ {error}</div>}
 

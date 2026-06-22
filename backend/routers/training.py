@@ -18,10 +18,17 @@ from integrations.dingtalk import notify_task_failure, notify_task_success
 from models import User
 from routers.chat import load_history, save_history
 from task_runner import create_background_task, submit_background_task
-from upload_validation import UploadValidationError, validate_image_upload, validate_pdf_upload
+from upload_validation import UploadValidationError, validate_excel_upload, validate_image_upload, validate_pdf_upload
 from config import DATA_ROOT
 from file_store import atomic_write_bytes, safe_child_path
 from perf_trace import PerfTrace
+from utils.ledger_importer import (
+    create_pending_import,
+    load_pending_import,
+    make_preview,
+    normalize_key,
+    parse_training_rows,
+)
 
 router = APIRouter(prefix="/api/training", tags=["training"])
 _TRAINING_PENDING_ROOT = Path(DATA_ROOT) / "_pending_training_uploads"
@@ -353,6 +360,34 @@ class TrainingWriteRequest(BaseModel):
     session_id: str = ""
 
 
+class TrainingImportConfirmRequest(BaseModel):
+    import_token: str
+    session_id: str = ""
+
+
+def _training_existing_keys() -> set[str]:
+    from utils.excel_writer import EXCEL_PATH
+    import openpyxl
+
+    if not os.path.exists(EXCEL_PATH):
+        return set()
+    try:
+        wb = openpyxl.load_workbook(EXCEL_PATH, data_only=True)
+        ws = wb.active
+        headers = {str(ws.cell(1, c).value or "").strip(): c for c in range(1, ws.max_column + 1)}
+        date_col = headers.get("培训日期")
+        topic_col = headers.get("培训主题")
+        if not date_col or not topic_col:
+            return set()
+        return {
+            f"{normalize_key(ws.cell(r, date_col).value)}|{normalize_key(ws.cell(r, topic_col).value)}"
+            for r in range(2, ws.max_row + 1)
+            if normalize_key(ws.cell(r, date_col).value) and normalize_key(ws.cell(r, topic_col).value)
+        }
+    except Exception:
+        return set()
+
+
 @router.post("/write")
 def write_training(
     req: TrainingWriteRequest,
@@ -398,6 +433,72 @@ def write_training(
     history.append({"role": "assistant", "content": reply})
     save_history(history, user.id, req.session_id)
     return {"ok": True, "excel_path": EXCEL_PATH}
+
+
+@router.post("/import-preview")
+async def preview_training_import(
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+):
+    file_bytes = await file.read()
+    try:
+        validate_excel_upload(file.filename or "", file.content_type, file_bytes)
+        records, invalid_rows = parse_training_rows(file_bytes)
+    except (UploadValidationError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    token = create_pending_import(user.id, "training", {"records": records, "invalid_rows": invalid_rows})
+    return make_preview(
+        records=records,
+        invalid_rows=invalid_rows,
+        existing_keys=_training_existing_keys(),
+        key_fn=lambda r: f"{normalize_key(r.get('date'))}|{normalize_key(r.get('topic'))}",
+        import_token=token,
+    )
+
+
+@router.post("/import-confirm")
+def confirm_training_import(
+    body: TrainingImportConfirmRequest,
+    request: Request,
+    db: DBSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    from utils.excel_writer import append_record, EXCEL_PATH
+
+    try:
+        pending = load_pending_import(user.id, "training", body.import_token)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    existing_before = _training_existing_keys()
+    inserts = 0
+    updates = 0
+    records = pending.get("records") or []
+    for record in records:
+        key = f"{normalize_key(record.get('date'))}|{normalize_key(record.get('topic'))}"
+        if key in existing_before:
+            updates += 1
+        else:
+            inserts += 1
+        append_record(
+            date=record.get("date", ""),
+            topic=record.get("topic", ""),
+            location=record.get("location", ""),
+            department=record.get("department", ""),
+            count=int(record.get("count") or 0),
+            duration_hours=float(record.get("duration_hours") or 0),
+            category=record.get("category", ""),
+            archive_path=record.get("archive_path", ""),
+        )
+
+    reply = f"✅ 历史培训台账导入完成：新增 {inserts} 条，更新 {updates} 条。"
+    if body.session_id:
+        history = load_history(user.id, body.session_id)
+        history.append({"role": "assistant", "content": reply})
+        save_history(history, user.id, body.session_id)
+    write_log(db, user, "training_import", f"导入历史培训台账：新增 {inserts}，更新 {updates}", request)
+    return {"ok": True, "count": len(records), "inserts": inserts, "updates": updates, "excel_path": EXCEL_PATH, "reply": reply}
 
 
 # ── 下载统计表 ────────────────────────────────────────────────

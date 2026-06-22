@@ -17,7 +17,14 @@ from models import User
 from perf_trace import PerfTrace
 from routers.chat import load_history, save_history
 from task_runner import create_background_task, submit_background_task
-from upload_validation import UploadValidationError, validate_legal_upload, validate_pdf_upload
+from upload_validation import UploadValidationError, validate_excel_upload, validate_legal_upload, validate_pdf_upload
+from utils.ledger_importer import (
+    create_pending_import,
+    load_pending_import,
+    make_preview,
+    normalize_key,
+    parse_auth_rows,
+)
 
 router = APIRouter(prefix="/api/auth-request", tags=["auth-request"])
 
@@ -39,6 +46,38 @@ class AuthLedgerRecordRequest(BaseModel):
     user_inputs: dict
     title: str
     session_id: str = ""
+
+
+class AuthLedgerImportConfirmRequest(BaseModel):
+    import_token: str
+    session_id: str = ""
+
+
+def _auth_existing_keys() -> set[str]:
+    import openpyxl
+    from utils.auth_request_drafter import AUTH_LEDGER_HEADERS
+
+    if not os.path.exists(AUTH_LEDGER_PATH):
+        return set()
+    try:
+        wb = openpyxl.load_workbook(AUTH_LEDGER_PATH, data_only=True)
+        ws = wb.active
+        auth_no_col = AUTH_LEDGER_HEADERS.index("编号") + 1
+        keys = set()
+        for row_idx in range(2, ws.max_row + 1):
+            auth_no = normalize_key(ws.cell(row_idx, auth_no_col).value)
+            if auth_no:
+                keys.add(f"编号:{auth_no}")
+        return keys
+    except Exception:
+        return set()
+
+
+def _auth_import_key(row: dict) -> str:
+    auth_no = normalize_key(row.get("编号"))
+    if auth_no:
+        return f"编号:{auth_no}"
+    return ""
 
 
 def _ocr_pdf_if_needed(pdf_bytes: bytes, text: str, vision_model: str) -> str:
@@ -256,6 +295,54 @@ def record_auth_ledger(
         "ledger_filename": ledger_filename,
         "reply": reply,
     }
+
+
+@router.post("/import-ledger-preview")
+async def preview_auth_ledger_import(
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+):
+    from utils.auth_request_drafter import AUTH_LEDGER_HEADERS
+
+    file_bytes = await file.read()
+    try:
+        validate_excel_upload(file.filename or "", file.content_type, file_bytes)
+        records, invalid_rows = parse_auth_rows(file_bytes, AUTH_LEDGER_HEADERS)
+    except (UploadValidationError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    token = create_pending_import(user.id, "auth_ledger", {"records": records, "invalid_rows": invalid_rows})
+    return make_preview(
+        records=records,
+        invalid_rows=invalid_rows,
+        existing_keys=_auth_existing_keys(),
+        key_fn=_auth_import_key,
+        import_token=token,
+    )
+
+
+@router.post("/import-ledger-confirm")
+def confirm_auth_ledger_import(
+    body: AuthLedgerImportConfirmRequest,
+    request: Request,
+    db: DBSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    from utils.auth_request_drafter import import_auth_ledger_rows
+
+    try:
+        pending = load_pending_import(user.id, "auth_ledger", body.import_token)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    result = import_auth_ledger_rows(pending.get("records") or [], AUTH_LEDGER_PATH)
+    reply = f"✅ 历史授权委托台账导入完成：新增 {result['inserts']} 条，更新 {result['updates']} 条。"
+    if body.session_id:
+        history = load_history(user.id, body.session_id)
+        history.append({"role": "assistant", "content": reply})
+        save_history(history, user.id, body.session_id)
+    write_log(db, user, "auth_request_ledger_import", f"导入历史授权台账：新增 {result['inserts']}，更新 {result['updates']}", request)
+    return {"ok": True, **result, "reply": reply}
 
 
 # Backward-compatible endpoint name for older frontend bundles. It now starts

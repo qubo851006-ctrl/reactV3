@@ -159,6 +159,51 @@ export function downloadTrainingExcel() {
   window.open(`${BASE}/training/download-excel`, '_blank')
 }
 
+export interface LedgerImportPreview {
+  import_token: string
+  rows_total: number
+  rows_valid: number
+  rows_invalid: number
+  inserts: number
+  updates: number
+  invalid_rows: { row: number; reason: string; data?: unknown }[]
+  sample_rows: unknown[]
+}
+
+export interface LedgerImportConfirmResult {
+  ok: boolean
+  count: number
+  inserts: number
+  updates: number
+  reply: string
+}
+
+async function previewLedgerImport(url: string, file: File): Promise<LedgerImportPreview> {
+  const form = new FormData()
+  form.append('file', file)
+  const r = await apiFetch(url, { method: 'POST', body: form })
+  if (!r.ok) throw new Error(await r.text())
+  return r.json()
+}
+
+async function confirmLedgerImport(url: string, importToken: string): Promise<LedgerImportConfirmResult> {
+  const r = await apiFetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ import_token: importToken, session_id: _sid }),
+  })
+  if (!r.ok) throw new Error(await r.text())
+  return r.json()
+}
+
+export function previewTrainingImport(file: File): Promise<LedgerImportPreview> {
+  return previewLedgerImport(`${BASE}/training/import-preview`, file)
+}
+
+export function confirmTrainingImport(importToken: string): Promise<LedgerImportConfirmResult> {
+  return confirmLedgerImport(`${BASE}/training/import-confirm`, importToken)
+}
+
 // ── 案件台账 ──────────────────────────────────────────────────
 
 export async function extractLedger(
@@ -248,6 +293,14 @@ export function downloadLedgerExcel() {
   window.open(`${BASE}/ledger/download-excel`, '_blank')
 }
 
+export function previewCaseLedgerImport(file: File): Promise<LedgerImportPreview> {
+  return previewLedgerImport(`${BASE}/ledger/import-preview`, file)
+}
+
+export function confirmCaseLedgerImport(importToken: string): Promise<LedgerImportConfirmResult> {
+  return confirmLedgerImport(`${BASE}/ledger/import-confirm`, importToken)
+}
+
 // ── 合规审查工作台账 ───────────────────────────────────────────
 
 export interface ComplianceReviewRow {
@@ -322,6 +375,14 @@ export async function updateComplianceResponsiblePersons(persons: Record<string,
   if (!r.ok) throw new Error(await r.text())
   const d = await r.json() as { persons: Record<string, string> }
   return d.persons
+}
+
+export function previewComplianceImport(file: File): Promise<LedgerImportPreview> {
+  return previewLedgerImport(`${BASE}/compliance/import-preview`, file)
+}
+
+export function confirmComplianceImport(importToken: string): Promise<LedgerImportConfirmResult> {
+  return confirmLedgerImport(`${BASE}/compliance/import-confirm`, importToken)
 }
 
 // ── 三台账合并 ────────────────────────────────────────────────
@@ -581,6 +642,14 @@ export async function recordAuthRequestLedgerV2(extracted: unknown, userInputs: 
   })
   if (!r.ok) throw new Error(await r.text())
   return r.json()
+}
+
+export function previewAuthLedgerImport(file: File): Promise<LedgerImportPreview> {
+  return previewLedgerImport(`${BASE}/auth-request/import-ledger-preview`, file)
+}
+
+export function confirmAuthLedgerImport(importToken: string): Promise<LedgerImportConfirmResult> {
+  return confirmLedgerImport(`${BASE}/auth-request/import-ledger-confirm`, importToken)
 }
 
 export function downloadDocx(base64: string, filename: string) {

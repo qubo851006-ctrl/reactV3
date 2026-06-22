@@ -1,6 +1,16 @@
 import { useEffect, useState, useRef } from 'react'
-import { getBackgroundTask, startTrainingExtractTask, writeTraining, downloadTrainingExcel, getErrorMessage, submitLlmFeedback } from '../api'
+import {
+  confirmTrainingImport,
+  downloadTrainingExcel,
+  getBackgroundTask,
+  getErrorMessage,
+  previewTrainingImport,
+  startTrainingExtractTask,
+  submitLlmFeedback,
+  writeTraining,
+} from '../api'
 import type { TrainingResult } from '../types'
+import LedgerImportPanel from './LedgerImportPanel'
 import { useNotifier } from './NotificationContext'
 
 interface Props {
@@ -336,6 +346,14 @@ export default function TrainingFlow({ onComplete, onCancel, visionModel = '' }:
         <button onClick={downloadTrainingExcel} className="text-xs text-emerald-300 hover:text-emerald-200 whitespace-nowrap">
           下载已有台账
         </button>
+      </div>
+      <div className="mb-4">
+        <LedgerImportPanel
+          title="培训统计表"
+          previewImport={previewTrainingImport}
+          confirmImport={confirmTrainingImport}
+          onImported={onComplete}
+        />
       </div>
       {error && <div className="text-red-400 text-sm mb-3">❌ {error}</div>}
       <div className="grid grid-cols-2 gap-4 mb-4">

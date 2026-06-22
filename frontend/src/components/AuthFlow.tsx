@@ -1,15 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
 import {
+  confirmAuthLedgerImport,
   type AuthGeneratedDoc,
   type AuthUserInputs,
   downloadDocx,
   generateAuthRequestDocx,
   getBackgroundTask,
   getErrorMessage,
+  previewAuthLedgerImport,
   previewAuthRequest,
   recordAuthRequestLedgerV2,
   startAuthRequestExtractTask,
 } from '../api'
+import LedgerImportPanel from './LedgerImportPanel'
 import { useNotifier } from './NotificationContext'
 
 function sleep(ms: number) {
@@ -257,6 +260,14 @@ export default function AuthFlow({ onComplete, onCancel, visionModel = '' }: Pro
 
       {step === 'upload' && (
         <>
+          <div className="mb-4">
+            <LedgerImportPanel
+              title="授权委托台账"
+              previewImport={previewAuthLedgerImport}
+              confirmImport={confirmAuthLedgerImport}
+              onImported={onComplete}
+            />
+          </div>
           <div className="grid md:grid-cols-2 gap-3 mb-4">
             <button
               type="button"

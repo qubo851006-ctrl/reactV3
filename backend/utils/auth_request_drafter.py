@@ -629,6 +629,65 @@ def record_to_ledger(extracted: dict[str, Any], user_inputs: dict[str, Any], tit
     return True
 
 
+def import_auth_ledger_rows(rows: list[dict[str, Any]], ledger_path: str) -> dict[str, int]:
+    import openpyxl
+    from openpyxl.styles import Alignment, Border, Font, Side
+
+    os.makedirs(os.path.dirname(ledger_path), exist_ok=True)
+    inserts = 0
+    updates = 0
+    with file_lock(ledger_path):
+        if os.path.exists(ledger_path):
+            wb = openpyxl.load_workbook(ledger_path)
+            ws = wb.active
+            _ensure_ledger_headers(ws)
+        else:
+            wb = _create_auth_ledger_workbook()
+            ws = wb.active
+
+        max_seq = 0
+        existing_by_auth_no: dict[str, int] = {}
+        for row_idx in range(2, ws.max_row + 1):
+            try:
+                max_seq = max(max_seq, int(ws.cell(row_idx, 1).value or 0))
+            except (TypeError, ValueError):
+                pass
+            auth_no = ws.cell(row_idx, 2).value
+            if auth_no:
+                existing_by_auth_no[re.sub(r"\s+", "", str(auth_no))] = row_idx
+
+        thin = Side(style="thin", color="000000")
+        border = Border(left=thin, right=thin, top=thin, bottom=thin)
+        for row in rows:
+            values = [row.get(header) for header in AUTH_LEDGER_HEADERS]
+            auth_no = values[1]
+            target_row = None
+            if auth_no:
+                target_row = existing_by_auth_no.get(re.sub(r"\s+", "", str(auth_no)))
+            if target_row:
+                updates += 1
+                values[0] = ws.cell(target_row, 1).value or values[0] or max_seq + 1
+            else:
+                inserts += 1
+                max_seq += 1
+                values[0] = values[0] or max_seq
+                target_row = ws.max_row + 1
+                if auth_no:
+                    existing_by_auth_no[re.sub(r"\s+", "", str(auth_no))] = target_row
+
+            for col, value in enumerate(values, start=1):
+                cell = ws.cell(target_row, col, value)
+                cell.font = Font(name="宋体", size=10)
+                cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+                if col == 9:
+                    cell.alignment = Alignment(horizontal="justify", vertical="center", wrap_text=True)
+                cell.border = border
+            ws.row_dimensions[target_row].height = 123
+
+        atomic_save_workbook(wb, ledger_path)
+    return {"inserts": inserts, "updates": updates, "count": inserts + updates}
+
+
 def validate_user_inputs(user_inputs: dict[str, Any]) -> None:
     auth_mode = user_inputs.get("auth_mode")
     if auth_mode not in {"direct", "transfer"}:

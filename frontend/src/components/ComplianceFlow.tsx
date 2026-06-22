@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import {
+  confirmComplianceImport,
   downloadComplianceLedger,
   getBackgroundTask,
   getComplianceResponsiblePersons,
   getErrorMessage,
+  previewComplianceImport,
   startComplianceExtractTask,
   submitLlmFeedback,
   updateComplianceResponsiblePersons,
@@ -12,6 +14,7 @@ import {
   type ComplianceItem,
   type ComplianceReviewRow,
 } from '../api'
+import LedgerImportPanel from './LedgerImportPanel'
 import { useNotifier } from './NotificationContext'
 
 interface Props {
@@ -352,6 +355,14 @@ export default function ComplianceFlow({
             部门负责人配置
           </button>
         </div>
+      </div>
+      <div className="mb-4">
+        <LedgerImportPanel
+          title="合规审查台账"
+          previewImport={previewComplianceImport}
+          confirmImport={confirmComplianceImport}
+          onImported={onComplete}
+        />
       </div>
       {error && <div className="text-red-400 text-sm mb-3">❌ {error}</div>}
 

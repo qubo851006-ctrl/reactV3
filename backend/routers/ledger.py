@@ -22,6 +22,7 @@ from integrations.dingtalk import notify_task_failure, notify_task_success
 from models import User
 from file_store import atomic_write_bytes, atomic_write_text, file_lock, safe_child_path
 from task_runner import create_background_task, submit_background_task
+from upload_validation import UploadValidationError, validate_excel_upload
 
 from config import LEDGER_JSON_PATH, LEDGER_EXCEL_PATH, LEDGER_OUTPUT_DIR
 from ledger_helpers import (
@@ -34,6 +35,13 @@ from ledger_helpers import (
 )
 from perf_trace import PerfTrace
 from routers.chat import load_history, save_history
+from utils.ledger_importer import (
+    create_pending_import,
+    load_pending_import,
+    make_preview,
+    normalize_key,
+    parse_legal_case_rows,
+)
 
 router = APIRouter(prefix="/api/ledger", tags=["ledger"])
 
@@ -422,6 +430,22 @@ class LedgerWriteRequest(BaseModel):
     session_id: str = ""
 
 
+class LedgerImportConfirmRequest(BaseModel):
+    import_token: str
+    session_id: str = ""
+
+
+def _case_import_key(case: dict) -> str:
+    case_numbers = [normalize_key(no) for no in case.get("案号列表", []) if normalize_key(no)]
+    if case_numbers:
+        return "案号:" + "|".join(sorted(case_numbers))
+    return "名称:" + normalize_key(case.get("案件名称"))
+
+
+def _case_existing_keys(cases: list[dict] | None = None) -> set[str]:
+    return {_case_import_key(case) for case in (cases if cases is not None else load_cases_json()) if _case_import_key(case)}
+
+
 @router.post("/write")
 def write_ledger_confirm(
     req: LedgerWriteRequest,
@@ -495,6 +519,97 @@ def write_ledger_confirm(
 
     write_log(db, user, "ledger_write", f"写入案件台账：{req.case_data.get('案件名称', '')}", request)
     return {"ok": True, "case_count": len(updated_cases), "reply": reply, "archive_dir": archive_dir}
+
+
+@router.post("/import-preview")
+async def preview_ledger_import(
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+):
+    file_bytes = await file.read()
+    try:
+        validate_excel_upload(file.filename or "", file.content_type, file_bytes)
+        records, invalid_rows = parse_legal_case_rows(file_bytes)
+    except (UploadValidationError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    token = create_pending_import(user.id, "ledger", {"records": records, "invalid_rows": invalid_rows})
+    return make_preview(
+        records=records,
+        invalid_rows=invalid_rows,
+        existing_keys=_case_existing_keys(),
+        key_fn=_case_import_key,
+        import_token=token,
+    )
+
+
+@router.post("/import-confirm")
+def confirm_ledger_import(
+    body: LedgerImportConfirmRequest,
+    request: Request,
+    db: DBSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    try:
+        pending = load_pending_import(user.id, "ledger", body.import_token)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    output_dir = Path(LEDGER_OUTPUT_DIR)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    txn_lock = Path(LEDGER_JSON_PATH).with_suffix(".txn")
+    with file_lock(txn_lock):
+        existing_cases = load_cases_json()
+        updated_cases = list(existing_cases)
+        index = {_case_import_key(case): idx for idx, case in enumerate(updated_cases) if _case_import_key(case)}
+        inserts = 0
+        updates = 0
+        for record in pending.get("records") or []:
+            key = _case_import_key(record)
+            if key and key in index:
+                updated_cases[index[key]] = record
+                updates += 1
+            else:
+                index[key] = len(updated_cases)
+                updated_cases.append(record)
+                inserts += 1
+
+        json_path = Path(LEDGER_JSON_PATH)
+        excel_path = Path(LEDGER_EXCEL_PATH)
+        old_json = json_path.read_bytes() if json_path.exists() else None
+        old_excel = excel_path.read_bytes() if excel_path.exists() else None
+        tmp_excel = None
+        try:
+            from utils.write_excel import write_ledger as write_legal_ledger
+            with tempfile.NamedTemporaryFile(suffix=".xlsx", dir=str(output_dir), delete=False) as tmp:
+                tmp_excel = tmp.name
+            write_legal_ledger(updated_cases, tmp_excel)
+            save_cases_json(updated_cases)
+            Path(tmp_excel).replace(excel_path)
+        except Exception as e:
+            if tmp_excel and os.path.exists(tmp_excel):
+                try:
+                    os.unlink(tmp_excel)
+                except OSError:
+                    pass
+            if old_json is not None:
+                atomic_write_bytes(json_path, old_json)
+            elif json_path.exists():
+                json_path.unlink()
+            if old_excel is not None:
+                atomic_write_bytes(excel_path, old_excel)
+            elif excel_path.exists():
+                excel_path.unlink()
+            write_log(db, user, "ledger_import_failed", f"案件台账导入失败：{e}", request)
+            raise HTTPException(status_code=500, detail=f"案件台账导入失败：{e}")
+
+    reply = f"✅ 历史案件台账导入完成：新增 {inserts} 个案件，更新 {updates} 个案件。"
+    if body.session_id:
+        history = load_history(user.id, body.session_id)
+        history.append({"role": "assistant", "content": reply})
+        save_history(history, user.id, body.session_id)
+    write_log(db, user, "ledger_import", f"导入历史案件台账：新增 {inserts}，更新 {updates}", request)
+    return {"ok": True, "case_count": len(updated_cases), "inserts": inserts, "updates": updates, "reply": reply}
 
 
 
