@@ -8,5 +8,5 @@
 #   python -m pytest tests/ -q
 
 pytest==9.0.3
-pytest-cov==6.0.0   # coverage: python -m pytest --cov=. --cov-report=term-missing
+pytest-cov==7.1.0   # coverage: python -m pytest --cov=. --cov-report=term-missing
 ruff==0.15.15       # lint: ruff check .  (config in ruff.toml)
