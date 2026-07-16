@@ -2,8 +2,8 @@
 
 Why: most utils today pass `model=MODEL_CHAT` for everything (extract,
 match, summarise, draft). That works but wastes money: glm-5-outside is
-~3x cheaper than qwen2.5-72b for tasks where accuracy doesn't matter
-(short summaries, simple classifications), and DeepSeek-V3 is better than
+~3x cheaper than qwen3.6 for tasks where accuracy doesn't matter
+(short summaries, simple classifications), and deepseek-v4-flash is better than
 qwen for reasoning-heavy reviews (compliance, audit cross-check).
 
 This module owns the model→scene mapping. `traced_complete` checks here
@@ -26,44 +26,44 @@ logger = logging.getLogger(__name__)
 
 
 # Defaults chosen for V3:
-# - extract_*  : high-accuracy structured extraction → qwen 72B
-# - compliance_* / audit_*  : reasoning-heavy review → DeepSeek-V3
-# - match_existing_case     : lightweight similarity check → DeepSeek-V3 (cheap)
-# - intent_classify         : intent label only → DeepSeek-V3 (cheap, fast)
-# - general_chat_stream     : conversational → DeepSeek-V3
-# - auth_draft_*            : Chinese formal writing → qwen 72B
-# - training_*              : short extraction → qwen 72B
+# - extract_*  : high-accuracy structured extraction → qwen3.6
+# - compliance_* / audit_*  : reasoning-heavy review → deepseek-v4-flash
+# - match_existing_case     : lightweight similarity check → deepseek-v4-flash (cheap)
+# - intent_classify         : intent label only → deepseek-v4-flash (cheap, fast)
+# - general_chat_stream     : conversational → deepseek-v4-flash
+# - auth_draft_*            : Chinese formal writing → qwen3.6
+# - training_*              : short extraction → qwen3.6
 # - vision_*                : routed externally (vision model selection)
 _DEFAULT_ROUTING: Final[dict[str, str]] = {
     # Ledger extraction (structured)
-    "extract_litigation_fields": "qwen2.5-72b",
-    "extract_business_fields":   "qwen2.5-72b",
-    "extract_judgment_fields":   "qwen2.5-72b",
-    "extract_execution_fields":  "qwen2.5-72b",
-    "detect_doc_type":           "DeepSeek-V3",
-    "merge_case_situation":      "qwen2.5-72b",
-    "match_existing_case":       "DeepSeek-V3",
+    "extract_litigation_fields": "qwen3.6",
+    "extract_business_fields":   "qwen3.6",
+    "extract_judgment_fields":   "qwen3.6",
+    "extract_execution_fields":  "qwen3.6",
+    "detect_doc_type":           "deepseek-v4-flash",
+    "merge_case_situation":      "qwen3.6",
+    "match_existing_case":       "deepseek-v4-flash",
 
     # Compliance
-    "compliance_extract":        "qwen2.5-72b",
-    "compliance_review":         "DeepSeek-V3",
+    "compliance_extract":        "qwen3.6",
+    "compliance_review":         "deepseek-v4-flash",
 
     # Audit cross-check
-    "audit_classify":            "qwen2.5-72b",
-    "audit_cross_review":        "DeepSeek-V3",
+    "audit_classify":            "qwen3.6",
+    "audit_cross_review":        "deepseek-v4-flash",
 
     # Auth request drafting
-    "auth_extract_approval_info": "qwen2.5-72b",
-    "auth_draft_request":        "qwen2.5-72b",
-    "auth_draft_letter_scope":   "qwen2.5-72b",
+    "auth_extract_approval_info": "qwen3.6",
+    "auth_draft_request":        "qwen3.6",
+    "auth_draft_letter_scope":   "qwen3.6",
 
     # Training
-    "training_extract_time":     "DeepSeek-V3",
-    "classify_training_category": "DeepSeek-V3",
+    "training_extract_time":     "deepseek-v4-flash",
+    "classify_training_category": "deepseek-v4-flash",
 
     # Chat / classifier
-    "intent_classify":           "DeepSeek-V3",
-    "general_chat_stream":       "DeepSeek-V3",
+    "intent_classify":           "deepseek-v4-flash",
+    "general_chat_stream":       "deepseek-v4-flash",
     # Vision scenes are NOT remapped here — vision client selection lives
     # in model_routes.resolve_vision_model and respects the user's choice.
 }

@@ -35,10 +35,10 @@ def _invalidate_routes_cache() -> None:
 
 def _label_for_model(value: str) -> str:
     labels = {
-        "qwen2.5-72b": "Qwen2.5 72B",
+        "qwen3.6": "Qwen3.6",
         "qwen2.5-vl-72b": "Qwen2.5 VL 72B",
         "qwen3-vl:8b": "Qwen3 VL 8B (本地)",
-        "DeepSeek-V3": "DeepSeek V3",
+        "deepseek-v4-flash": "DeepSeek V4 Flash",
         "DeepSeek-R1": "DeepSeek R1",
         "glm-5-outside": "GLM-5",
         "deepseek-v3.2-outside": "DeepSeek V3.2",
@@ -68,8 +68,8 @@ def _default_routes() -> dict[str, Any]:
     chat_models = list(AI_CHAT_MODELS)
     vision_models = list(AI_VISION_MODELS)
     return {
-        "default_chat_model": resolve_model("qwen2.5-72b", chat_models, MODEL_CHAT),
-        "default_intent_model": resolve_model("qwen2.5-72b", chat_models, MODEL_INTENT),
+        "default_chat_model": resolve_model("qwen3.6", chat_models, MODEL_CHAT),
+        "default_intent_model": resolve_model("qwen3.6", chat_models, MODEL_INTENT),
         "default_vision_model": resolve_model("qwen2.5-vl-72b", vision_models, MODEL_VISION),
         "chat_models": chat_models,
         "vision_models": vision_models,
