@@ -281,6 +281,32 @@ class LlmClientTests(unittest.TestCase):
             self.assertEqual(routes["chat_models"][0]["value"], "deepseek-v4-flash")
             self.assertEqual(routes["chat_models"][0]["label"], "DeepSeek V4 Flash")
 
+    def test_runtime_routes_cache_reloads_after_external_file_update(self):
+        """手工更新 model_routes.json 后无需重启后端即可生效。"""
+        import model_routes as routes_module
+
+        TEST_TMP_ROOT.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as tmpdir:
+            path = Path(tmpdir) / "model_routes.json"
+            path.write_text(json.dumps({
+                "default_chat_model": "qwen2.5-72b",
+                "chat_models": ["qwen2.5-72b"],
+                "vision_models": ["qwen2.5-vl-72b"],
+            }), encoding="utf-8")
+
+            with patch.object(routes_module, "MODEL_ROUTES_PATH", path):
+                routes_module._invalidate_routes_cache()
+                self.assertEqual(routes_module.resolve_chat_model("qwen3.6"), "qwen2.5-72b")
+
+                path.write_text(json.dumps({
+                    "default_chat_model": "qwen3.6",
+                    "chat_models": ["qwen3.6"],
+                    "vision_models": ["qwen2.5-vl-72b"],
+                }), encoding="utf-8")
+
+                self.assertEqual(routes_module.resolve_chat_model("qwen3.6"), "qwen3.6")
+                routes_module._invalidate_routes_cache()
+
     def test_host_header_is_optional(self):
         self.assertEqual(build_ai_http_headers("aiplus.airchina.com.cn:18080"), {"Host": "aiplus.airchina.com.cn:18080"})
         self.assertEqual(build_ai_http_headers(""), {})

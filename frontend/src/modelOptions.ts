@@ -1,4 +1,4 @@
-export const DEFAULT_CHAT_MODEL = 'qwen2.5-72b'
+export const DEFAULT_CHAT_MODEL = 'qwen3.6'
 export const DEFAULT_VISION_MODEL = 'qwen2.5-vl-72b'
 
 export interface ModelOption {
@@ -15,8 +15,8 @@ export interface ModelRoutes {
 }
 
 export const CHAT_MODEL_OPTIONS: ModelOption[] = [
-  { value: 'qwen2.5-72b', label: 'Qwen2.5 72B', hint: '默认' },
-  { value: 'DeepSeek-V3', label: 'DeepSeek V3', hint: '高速' },
+  { value: 'qwen3.6', label: 'Qwen3.6', hint: '默认' },
+  { value: 'DeepSeek-V4-flash', label: 'DeepSeek V4 Flash', hint: '高速' },
   { value: 'glm-5-outside', label: 'GLM-5', hint: '集团' },
 ]
 

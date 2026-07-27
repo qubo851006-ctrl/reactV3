@@ -17,20 +17,33 @@ MODEL_ROUTES_PATH = Path(DATA_ROOT) / "model_routes.json"
 
 # ── 内存缓存（避免在 async 端点中重复同步读文件阻塞事件循环）──────
 _routes_cache: dict[str, Any] | None = None
+_routes_cache_signature: tuple[bool, int, int] | None = None
+
+
+def _file_signature(path: Path) -> tuple[bool, int, int]:
+    """Return a cheap change marker for the runtime routes file."""
+    try:
+        stat = path.stat()
+    except FileNotFoundError:
+        return (False, 0, 0)
+    return (True, stat.st_mtime_ns, stat.st_size)
 
 
 def _get_cached_routes() -> dict[str, Any]:
-    """返回内存中缓存的路由配置，首次调用时从磁盘加载。"""
-    global _routes_cache
-    if _routes_cache is None:
-        _routes_cache = load_model_routes()
+    """Return cached routes and reload them after an external file update."""
+    global _routes_cache, _routes_cache_signature
+    signature = _file_signature(MODEL_ROUTES_PATH)
+    if _routes_cache is None or _routes_cache_signature != signature:
+        _routes_cache = load_model_routes(MODEL_ROUTES_PATH)
+        _routes_cache_signature = signature
     return _routes_cache
 
 
 def _invalidate_routes_cache() -> None:
     """写入新配置后调用，使下次 _get_cached_routes() 重新读盘。"""
-    global _routes_cache
+    global _routes_cache, _routes_cache_signature
     _routes_cache = None
+    _routes_cache_signature = None
 
 
 def _label_for_model(value: str) -> str:
