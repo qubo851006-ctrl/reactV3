@@ -270,16 +270,16 @@ class LlmClientTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as tmpdir:
             path = Path(tmpdir) / "model_routes.json"
             save_model_routes({
-                "default_chat_model": "DeepSeek-V3",
-                "chat_models": ["DeepSeek-V3"],
+                "default_chat_model": "deepseek-v4-flash",
+                "chat_models": ["deepseek-v4-flash"],
                 "vision_models": ["qwen2.5-vl-72b"],
             }, path)
 
             routes = public_model_routes(path)
 
-            self.assertEqual(routes["default_chat_model"], "DeepSeek-V3")
-            self.assertEqual(routes["chat_models"][0]["value"], "DeepSeek-V3")
-            self.assertEqual(routes["chat_models"][0]["label"], "DeepSeek V3")
+            self.assertEqual(routes["default_chat_model"], "deepseek-v4-flash")
+            self.assertEqual(routes["chat_models"][0]["value"], "deepseek-v4-flash")
+            self.assertEqual(routes["chat_models"][0]["label"], "DeepSeek V4 Flash")
 
     def test_host_header_is_optional(self):
         self.assertEqual(build_ai_http_headers("aiplus.airchina.com.cn:18080"), {"Host": "aiplus.airchina.com.cn:18080"})
@@ -298,6 +298,8 @@ class LlmClientTests(unittest.TestCase):
         self.assertIn("AI_HTTP_VERIFY_SSL=false", message)
 
     def test_audit_review_model_uses_deepseek_not_global_default(self):
+        import llm_audit
+        from skills.tracer import NoopTracer
         from routers.audit import _call_review_llm
 
         mock_client = MagicMock()
@@ -305,17 +307,22 @@ class LlmClientTests(unittest.TestCase):
         mock_response.choices[0].message.content = "[]"
         mock_client.chat.completions.create.return_value = mock_response
 
-        with patch("routers.audit.get_llm_client", return_value=mock_client):
-            _call_review_llm([{
-                "seq": 1,
-                "issue": "issue",
-                "description": "",
-                "category_l1": "其他",
-                "category_l2": "其他",
-                "domain": "工程领域",
-            }], ["工程领域"])
+        original_tracer = llm_audit._tracer
+        llm_audit.set_tracer(NoopTracer())
+        try:
+            with patch("routers.audit.get_llm_client", return_value=mock_client):
+                _call_review_llm([{
+                    "seq": 1,
+                    "issue": "issue",
+                    "description": "",
+                    "category_l1": "其他",
+                    "category_l2": "其他",
+                    "domain": "工程领域",
+                }], ["工程领域"])
+        finally:
+            llm_audit._tracer = original_tracer
 
-        self.assertEqual(mock_client.chat.completions.create.call_args.kwargs["model"], "DeepSeek-V3")
+        self.assertEqual(mock_client.chat.completions.create.call_args.kwargs["model"], "deepseek-v4-flash")
 
     def test_audit_cross_check_models_are_fixed_without_removing_glm_globally(self):
         from routers.audit import AUDIT_CLASSIFY_MODEL, AUDIT_REVIEW_MODEL
@@ -332,8 +339,8 @@ class LlmClientTests(unittest.TestCase):
 
             routes = load_model_routes(path)
 
-        self.assertEqual(AUDIT_CLASSIFY_MODEL, "qwen2.5-72b")
-        self.assertEqual(AUDIT_REVIEW_MODEL, "DeepSeek-V3")
+        self.assertEqual(AUDIT_CLASSIFY_MODEL, "qwen3.6")
+        self.assertEqual(AUDIT_REVIEW_MODEL, "deepseek-v4-flash")
         self.assertIn("glm-5-outside", routes["chat_models"])
 
 

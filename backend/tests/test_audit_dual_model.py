@@ -15,6 +15,11 @@ from unittest.mock import MagicMock, patch
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_DIR))
 
+import llm_audit
+from skills.tracer import NoopTracer
+
+llm_audit.set_tracer(NoopTracer())
+
 
 # ─────────────────────────────────────────────────────────────
 # 1. _merge_ab_results — 纯函数，无需 mock
@@ -229,6 +234,10 @@ A_RESPONSE = (
     '[{"序号": 1, "问题类别一级": "采购管理", "问题类别二级": "采购方式", "业务领域": "工程领域"},'
     ' {"序号": 2, "问题类别一级": "公司治理", "问题类别二级": "会议管理", "业务领域": "酒店公寓"}]'
 )
+A_RESPONSE_OBJECT = (
+    '{"items": [{"序号": 1, "问题类别一级": "采购管理", "问题类别二级": "采购方式", "业务领域": "工程领域"},'
+    ' {"序号": 2, "问题类别一级": "公司治理", "问题类别二级": "会议管理", "业务领域": "酒店公寓"}]}'
+)
 B_AGREES = (
     '[{"序号": 1, "需要修正": false, "问题类别一级": "采购管理", "问题类别二级": "采购方式", "业务领域": "工程领域"},'
     ' {"序号": 2, "需要修正": false, "问题类别一级": "公司治理", "问题类别二级": "会议管理", "业务领域": "酒店公寓"}]'
@@ -242,6 +251,94 @@ SAMPLE_ROWS_RAW = [
     {"seq": 1, "issue": "采购未招标", "description": ""},
     {"seq": 2, "issue": "缺少会议记录", "description": ""},
 ]
+
+
+class ParseAuditClassifyOutputTests(unittest.TestCase):
+    def test_parse_structured_object_response(self):
+        from routers.audit import _parse_llm_output
+
+        result = _parse_llm_output(A_RESPONSE_OBJECT, SAMPLE_ROWS_RAW, ["工程领域", "酒店公寓"])
+
+        self.assertEqual(result[0]["category_l1"], "采购管理")
+        self.assertEqual(result[1]["domain"], "酒店公寓")
+
+    def test_parse_legacy_array_response(self):
+        from routers.audit import _parse_llm_output
+
+        result = _parse_llm_output(A_RESPONSE, SAMPLE_ROWS_RAW, ["工程领域", "酒店公寓"])
+
+        self.assertEqual(result[0]["category_l2"], "采购方式")
+        self.assertEqual(result[1]["category_l1"], "公司治理")
+
+    def test_parse_noisy_qwen_output_with_thinking_prefix(self):
+        from routers.audit import _parse_llm_output
+
+        noisy = (
+            "Here's a thinking process:\n1. Understand the task.\n"
+            "Final answer:\n"
+            + A_RESPONSE_OBJECT
+        )
+        result = _parse_llm_output(noisy, SAMPLE_ROWS_RAW, ["工程领域", "酒店公寓"])
+
+        self.assertEqual(result[0]["category_l1"], "采购管理")
+        self.assertEqual(result[1]["category_l2"], "会议管理")
+
+    def test_parse_skips_unrelated_json_before_final_answer(self):
+        from routers.audit import _parse_llm_output
+
+        noisy = (
+            "Input rows were:\n"
+            '[{"序号": 1, "发现问题": "采购未招标"}]\n'
+            "Final answer:\n"
+            + A_RESPONSE_OBJECT
+        )
+        result = _parse_llm_output(noisy, SAMPLE_ROWS_RAW, ["工程领域", "酒店公寓"])
+
+        self.assertEqual(result[0]["category_l1"], "采购管理")
+        self.assertEqual(result[1]["domain"], "酒店公寓")
+
+    def test_invalid_category_is_sanitized(self):
+        from routers.audit import _parse_llm_output
+
+        raw = (
+            '{"items": [{"序号": 1, "问题类别一级": "不存在", "问题类别二级": "采购方式", "业务领域": "未知领域"}]}'
+        )
+        with self.assertRaisesRegex(ValueError, "未提取到可用完整审计分类结果"):
+            _parse_llm_output(raw, SAMPLE_ROWS_RAW, ["工程领域"])
+
+
+class CallClassifyLLMTests(unittest.TestCase):
+    def test_retries_with_repair_when_first_output_is_not_json(self):
+        from routers.audit import _call_classify_llm
+
+        mock_client = MagicMock()
+        with patch(
+            "llm_audit.traced_complete",
+            side_effect=[
+                _make_llm_response("Here's a thinking process without final JSON."),
+                _make_llm_response(A_RESPONSE_OBJECT),
+            ],
+        ) as traced:
+            result = _call_classify_llm(mock_client, "prompt", SAMPLE_ROWS_RAW, ["工程领域", "酒店公寓"])
+
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0]["category_l1"], "采购管理")
+        self.assertEqual(traced.call_count, 2)
+        self.assertEqual(traced.call_args_list[1].kwargs["scene"], "audit_classify_repair")
+
+    def test_raises_clear_error_when_repair_also_fails(self):
+        from routers.audit import _call_classify_llm
+
+        mock_client = MagicMock()
+        with patch(
+            "llm_audit.traced_complete",
+            side_effect=[
+                _make_llm_response("Here's a thinking process."),
+                _make_llm_response("still not json"),
+            ],
+        ):
+            with self.assertRaisesRegex(ValueError, "已尝试修复但仍无法解析"):
+                _call_classify_llm(mock_client, "prompt", SAMPLE_ROWS_RAW, ["工程领域"])
 
 
 def _make_two_call_client(a_text: str, b_text: str):

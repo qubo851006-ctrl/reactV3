@@ -464,7 +464,7 @@ class ComplianceLedgerModelTests(unittest.TestCase):
         with patch("llm_client.get_llm_client", return_value=_FakeClient(completions)):
             item = extract_compliance_item("OA正文内容", {"财务部": "杨焕"})
 
-        self.assertEqual(completions.models, ["qwen2.5-72b", "DeepSeek-V3"])
+        self.assertEqual(completions.models, ["qwen3.6", "deepseek-v4-flash"])
         self.assertNotIn("glm-5-outside", completions.models)
         self.assertEqual(item["title"], "校验后的标题")
         self.assertEqual(item["procedure"], "总办会审议")

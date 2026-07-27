@@ -2,6 +2,7 @@
 import asyncio
 import io
 import json
+import logging
 import re
 import tempfile
 
@@ -9,7 +10,7 @@ import openpyxl
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from openpyxl.styles import Alignment, Font, PatternFill
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session as DBSession
 
 from auth_utils import get_current_user
@@ -23,8 +24,8 @@ from upload_validation import UploadValidationError, validate_excel_upload
 from perf_trace import PerfTrace
 
 router = APIRouter(prefix="/api/audit")
-AUDIT_CLASSIFY_MODEL = "qwen2.5-72b"
-AUDIT_REVIEW_MODEL = "DeepSeek-V3"
+AUDIT_CLASSIFY_MODEL = "qwen3.6"
+AUDIT_REVIEW_MODEL = "deepseek-v4-flash"
 
 
 # ── 分类体系常量 ───────────────────────────────────────────────────
@@ -68,6 +69,23 @@ class AuditRow(BaseModel):
 class DownloadRequest(BaseModel):
     rows: list[AuditRow]
     original_filename: str = "审计问题分析结果"
+
+
+class AuditClassifyItem(BaseModel):
+    seq: int = Field(alias="序号")
+    category_l1: str = Field(alias="问题类别一级")
+    category_l2: str = Field(alias="问题类别二级")
+    domain: str = Field(alias="业务领域")
+
+
+class AuditClassifyOutput(BaseModel):
+    items: list[AuditClassifyItem]
+
+
+_JSON_ONLY_SYSTEM_MESSAGE = (
+    "You are a JSON-only API. Do not output reasoning, thinking process, "
+    "markdown, explanations, or code fences. Return only one valid JSON object."
+)
 
 
 # ── 工具函数 ──────────────────────────────────────────────────────
@@ -162,29 +180,182 @@ def _build_prompt(rows: list[dict], domains: list[str]) -> str:
 【发现问题列表（JSON）】：
 {rows_json}
 
-请严格按如下格式返回，只输出JSON数组，不含任何其他文字：
-[{{"序号": 1, "问题类别一级": "...", "问题类别二级": "...", "业务领域": "..."}}, ...]"""
+请严格按如下格式返回，只输出一个合法 JSON 对象，不含任何其他文字、解释、Markdown 或思考过程：
+{{"items": [{{"序号": 1, "问题类别一级": "...", "问题类别二级": "...", "业务领域": "..."}}]}}"""
 
 
-def _parse_llm_output(text: str, rows: list[dict]) -> list[dict]:
-    """从 LLM 输出中提取 JSON 数组，补全缺失行。"""
-    match = re.search(r'\[.*\]', text, re.DOTALL)
-    if not match:
-        raise ValueError(f"LLM 返回格式异常，无法解析 JSON：{text[:200]}")
+def _iter_json_payloads(text: str):
+    """Yield valid JSON object/array candidates from possibly noisy LLM output."""
+    cleaned = (text or "").strip()
+    cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s*```$", "", cleaned)
 
-    parsed = json.loads(match.group())
-    result_map = {item["序号"]: item for item in parsed}
+    decoder = json.JSONDecoder()
+    for match in re.finditer(r"[\{\[]", cleaned):
+        try:
+            value, _ = decoder.raw_decode(cleaned[match.start():])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, (dict, list)):
+            yield value
+
+
+def _extract_json_payload(text: str) -> object:
+    """Extract the first valid JSON object/array from possibly noisy LLM output."""
+    for payload in _iter_json_payloads(text):
+        return payload
+    raise ValueError("LLM 返回格式异常，无法解析 JSON：未找到 JSON 对象或数组")
+
+
+def _coerce_classify_output(payload: object) -> AuditClassifyOutput:
+    if isinstance(payload, list):
+        payload = {"items": payload}
+    if not isinstance(payload, dict):
+        raise ValueError("LLM 返回格式异常，JSON 顶层必须是对象。")
+    try:
+        return AuditClassifyOutput.model_validate(payload)
+    except Exception as exc:
+        raise ValueError(f"LLM 返回格式异常，分类结果字段不完整或类型错误：{str(exc)[:160]}") from exc
+
+
+def _extract_classify_output(text: str) -> AuditClassifyOutput:
+    errors: list[str] = []
+    for payload in _iter_json_payloads(text):
+        try:
+            return _coerce_classify_output(payload)
+        except ValueError as exc:
+            errors.append(str(exc))
+            continue
+    detail = errors[-1] if errors else "未找到 JSON 对象或数组"
+    raise ValueError(f"LLM 返回格式异常，无法解析审计分类 JSON：{detail}")
+
+
+def _normalise_classify_item(
+    item: AuditClassifyItem,
+    *,
+    valid_domains: set[str] | None,
+) -> dict:
+    category_l1 = (item.category_l1 or "").strip()
+    category_l2 = (item.category_l2 or "").strip()
+    domain = (item.domain or "").strip()
+
+    if category_l1 not in CATEGORY_TAXONOMY:
+        category_l1 = ""
+        category_l2 = ""
+    elif category_l2 not in CATEGORY_TAXONOMY[category_l1]:
+        category_l2 = ""
+
+    if valid_domains is not None and domain not in valid_domains:
+        domain = ""
+
+    return {
+        "category_l1": category_l1,
+        "category_l2": category_l2,
+        "domain": domain,
+    }
+
+
+def _parse_llm_output(
+    text: str,
+    rows: list[dict],
+    domains: list[str] | None = None,
+) -> list[dict]:
+    """Parse structured audit classifications and fill missing rows."""
+    output = _extract_classify_output(text)
+    valid_domains = set(domains) if domains else None
+    result_map = {
+        item.seq: _normalise_classify_item(item, valid_domains=valid_domains)
+        for item in output.items
+    }
+    if rows and not any(
+        item["category_l1"] and item["category_l2"] and item["domain"]
+        for item in result_map.values()
+    ):
+        raise ValueError("LLM 返回格式异常，未提取到可用完整审计分类结果。")
 
     result = []
     for r in rows:
         classified = result_map.get(r["seq"], {})
         result.append({
             **r,
-            "category_l1": classified.get("问题类别一级", ""),
-            "category_l2": classified.get("问题类别二级", ""),
-            "domain": classified.get("业务领域", ""),
+            "category_l1": classified.get("category_l1", ""),
+            "category_l2": classified.get("category_l2", ""),
+            "domain": classified.get("domain", ""),
         })
     return result
+
+
+def _build_classify_messages(prompt: str) -> list[dict]:
+    return [
+        {"role": "system", "content": _JSON_ONLY_SYSTEM_MESSAGE},
+        {"role": "user", "content": prompt},
+    ]
+
+
+def _build_repair_prompt(raw_output: str, rows: list[dict], domains: list[str], error: str) -> str:
+    seqs = [r["seq"] for r in rows]
+    domain_lines = "\n".join(f"- {d}" for d in domains)
+    return f"""上一次审计分类模型输出不是合法 JSON，解析错误为：{error}
+
+请只修复格式，不要重新解释过程。根据下面的模型原始输出，提取已有分类结果并转换为一个合法 JSON 对象。
+
+必须返回这个 schema：
+{{"items": [{{"序号": 1, "问题类别一级": "...", "问题类别二级": "...", "业务领域": "..."}}]}}
+
+要求：
+- 只返回 JSON 对象，不要 Markdown、解释、思考过程或代码块
+- "序号" 只能来自这些值：{seqs}
+- "业务领域" 只能来自：
+{domain_lines}
+- 如果原始输出里没有可用分类，返回 {{"items": []}}
+
+模型原始输出：
+{raw_output[:20000]}"""
+
+
+def _call_classify_llm(client, prompt: str, rows: list[dict], domains: list[str]) -> list[dict]:
+    from llm_audit import traced_complete
+
+    resp = traced_complete(
+        client,
+        scene="audit_classify",
+        prompt_template_id="audit.classify.v2",
+        model=AUDIT_CLASSIFY_MODEL,
+        messages=_build_classify_messages(prompt),
+        temperature=0,
+    )
+    raw_output = resp.choices[0].message.content or ""
+    try:
+        return _parse_llm_output(raw_output, rows, domains)
+    except ValueError as first_error:
+        first_error_text = str(first_error)
+        logging.warning(
+            "audit_classify JSON parse failed; retrying format repair: %s",
+            first_error_text[:200],
+        )
+
+    repair_resp = traced_complete(
+        client,
+        scene="audit_classify_repair",
+        prompt_template_id="audit.classify.repair.v1",
+        model=AUDIT_CLASSIFY_MODEL,
+        messages=[
+            {"role": "system", "content": _JSON_ONLY_SYSTEM_MESSAGE},
+            {"role": "user", "content": _build_repair_prompt(raw_output, rows, domains, first_error_text)},
+        ],
+        temperature=0,
+    )
+    repair_output = repair_resp.choices[0].message.content or ""
+    try:
+        return _parse_llm_output(repair_output, rows, domains)
+    except ValueError as repair_error:
+        logging.warning(
+            "audit_classify repair JSON parse failed: %s",
+            str(repair_error)[:200],
+        )
+        raise ValueError(
+            "模型返回格式异常，已尝试修复但仍无法解析。请减少单次审计问题数量后重试，或联系管理员查看 LLM 审计记录。"
+        ) from repair_error
 
 
 def _build_review_prompt(rows_a: list[dict], domains: list[str]) -> str:
@@ -233,17 +404,23 @@ def _call_review_llm(rows_a: list[dict], domains: list[str]) -> list[dict]:
         scene="audit_cross_review",
         prompt_template_id="audit.cross_review.v1",
         model=AUDIT_REVIEW_MODEL,
-        messages=[{"role": "user", "content": prompt}],
+        messages=[
+            {"role": "system", "content": _JSON_ONLY_SYSTEM_MESSAGE},
+            {"role": "user", "content": prompt},
+        ],
         temperature=0,
     )
     text = resp.choices[0].message.content or ""
-    match = re.search(r'\[.*\]', text, re.DOTALL)
-    if not match:
-        logging.warning("模型B返回内容无法提取JSON数组，原始文本: %s", text[:200])
-        return []  # B 解析失败时静默返回空，不影响 A 的结果
     try:
-        parsed = json.loads(match.group())
-    except json.JSONDecodeError:
+        payload = _extract_json_payload(text)
+        if isinstance(payload, dict):
+            parsed = payload.get("items", [])
+        else:
+            parsed = payload
+        if not isinstance(parsed, list):
+            logging.warning("模型B返回JSON不是数组，原始文本: %s", text[:200])
+            return []
+    except ValueError:
         logging.warning("模型B返回JSON解析失败，原始文本: %s", text[:200])
         return []
     return [item for item in parsed if item.get("需要修正")]
@@ -301,16 +478,7 @@ def _run_audit_analysis(
         with collect_traces() as bucket:
             progress(35, "模型 A 正在初步分类")
             with trace.step("model_a_classify"):
-                from llm_audit import traced_complete
-                resp_a = traced_complete(
-                    client,
-                    scene="audit_classify",
-                    prompt_template_id="audit.classify.v1",
-                    model=AUDIT_CLASSIFY_MODEL,
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=0,
-                )
-                rows_a = _parse_llm_output(resp_a.choices[0].message.content or "", rows)
+                rows_a = _call_classify_llm(client, prompt, rows, doms)
 
             progress(70, "模型 B 正在交叉校验")
             with trace.step("model_b_review"):
@@ -370,16 +538,7 @@ async def analyze_audit(
         with collect_traces() as bucket:
             # Step 1: 模型 A 固定用 Qwen，避免全局默认模型影响审计分类。
             with trace.step("model_a_classify"):
-                from llm_audit import traced_complete
-                resp_a = traced_complete(
-                    client,
-                    scene="audit_classify",
-                    prompt_template_id="audit.classify.v1",
-                    model=AUDIT_CLASSIFY_MODEL,
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=0,
-                )
-                rows_a = _parse_llm_output(resp_a.choices[0].message.content or "", rows)
+                rows_a = _call_classify_llm(client, prompt, rows, doms)
 
             # Step 2: 模型 B 固定用 DeepSeek 逐条审查 A 的结果。
             with trace.step("model_b_review"):

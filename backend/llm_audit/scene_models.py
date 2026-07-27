@@ -50,6 +50,7 @@ _DEFAULT_ROUTING: Final[dict[str, str]] = {
 
     # Audit cross-check
     "audit_classify":            "qwen3.6",
+    "audit_classify_repair":     "qwen3.6",
     "audit_cross_review":        "deepseek-v4-flash",
 
     # Auth request drafting

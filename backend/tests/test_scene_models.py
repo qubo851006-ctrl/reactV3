@@ -23,10 +23,12 @@ class SceneRoutingTests(unittest.TestCase):
 
     def test_known_scenes_get_routed(self):
         # Spot-check the categories that matter most
-        self.assertEqual(resolve_model("extract_judgment_fields", "fallback"), "qwen2.5-72b")
-        self.assertEqual(resolve_model("compliance_review", "fallback"), "DeepSeek-V3")
-        self.assertEqual(resolve_model("audit_cross_review", "fallback"), "DeepSeek-V3")
-        self.assertEqual(resolve_model("intent_classify", "fallback"), "DeepSeek-V3")
+        self.assertEqual(resolve_model("extract_judgment_fields", "fallback"), "qwen3.6")
+        self.assertEqual(resolve_model("compliance_review", "fallback"), "deepseek-v4-flash")
+        self.assertEqual(resolve_model("audit_classify", "fallback"), "qwen3.6")
+        self.assertEqual(resolve_model("audit_classify_repair", "fallback"), "qwen3.6")
+        self.assertEqual(resolve_model("audit_cross_review", "fallback"), "deepseek-v4-flash")
+        self.assertEqual(resolve_model("intent_classify", "fallback"), "deepseek-v4-flash")
 
     def test_unknown_scene_falls_back_to_caller_model(self):
         self.assertEqual(resolve_model("brand_new_scene_xyz", "fallback-m"), "fallback-m")
@@ -45,7 +47,7 @@ class SceneRoutingTests(unittest.TestCase):
             self.assertEqual(resolve_model("extract_judgment_fields", "x"), "experimental-model-v2")
             self.assertEqual(resolve_model("compliance_review", "x"), "custom-judge")
             # Untouched scene still uses the default routing
-            self.assertEqual(resolve_model("audit_cross_review", "x"), "DeepSeek-V3")
+            self.assertEqual(resolve_model("audit_cross_review", "x"), "deepseek-v4-flash")
         reload_routing()
 
     def test_malformed_env_override_is_ignored(self):
@@ -104,7 +106,7 @@ class TracedCompleteUsesRoutingTests(unittest.TestCase):
         )
         self.assertEqual(
             client.chat.completions.create.call_args.kwargs["model"],
-            "DeepSeek-V3",
+            "deepseek-v4-flash",
         )
 
     def test_unrouted_scene_uses_caller_model(self):
